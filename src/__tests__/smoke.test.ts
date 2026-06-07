@@ -182,3 +182,64 @@ describe("team-memory query", () => {
     expect(lines).toHaveLength(2);
   });
 });
+
+describe("team-memory reject", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-cli-reject-"));
+    mkdirSync(join(dir, "facts"));
+    mkdirSync(join(dir, "interactions"));
+    execFileSync("git", ["init"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "testdev"], { cwd: dir });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("rejects a fact and prints confirmation", () => {
+    const addOutput = execFileSync(
+      "node",
+      [CLI_PATH, "add", "always run lint before push"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+      },
+    );
+    const factId = addOutput.trim();
+
+    const rejectOutput = execFileSync(
+      "node",
+      [CLI_PATH, "reject", factId],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+      },
+    );
+    expect(rejectOutput).toContain(`Rejected fact ${factId}`);
+    expect(rejectOutput).toContain("always run lint before push");
+  });
+
+  it("exits 1 when no fact_id provided", () => {
+    expect(() =>
+      execFileSync("node", [CLI_PATH, "reject"], {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+      }),
+    ).toThrow();
+  });
+
+  it("exits 1 for non-existent fact_id", () => {
+    try {
+      execFileSync("node", [CLI_PATH, "reject", "badid123"], {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+      });
+      expect.fail("should have thrown");
+    } catch (e: any) {
+      expect(e.stderr.toString()).toContain("Fact not found");
+    }
+  });
+});
