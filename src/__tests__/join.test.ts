@@ -24,6 +24,7 @@ describe("joinRepo", () => {
 
     process.env.TEAM_MEMORY_DEVELOPER = "joiner";
     process.env.TEAM_MEMORY_CLAUDE_SETTINGS = join(tmp, ".claude", "settings.json");
+    process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR = join(tmp, ".claude", "skills");
   });
 
   afterEach(() => {
@@ -31,6 +32,7 @@ describe("joinRepo", () => {
     delete process.env.TEAM_MEMORY_DEVELOPER;
     delete process.env.TEAM_MEMORY_DIR;
     delete process.env.TEAM_MEMORY_CLAUDE_SETTINGS;
+    delete process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR;
   });
 
   test("clones repo, runs setup, pushes per-dev DB commit", () => {
@@ -62,6 +64,20 @@ describe("joinRepo", () => {
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
       "team-memory preprompt-hook",
     );
+  });
+
+  test("installs SessionEnd hook and extract-facts skill", () => {
+    const target = join(tmp, "with-skill");
+    joinRepo({ repoUrl: bareDir, dir: target });
+
+    const settings = JSON.parse(
+      readFileSync(process.env.TEAM_MEMORY_CLAUDE_SETTINGS!, "utf-8"),
+    );
+    expect(settings.hooks.SessionEnd[0].hooks[0].command).toContain("/extract-facts");
+
+    const skillPath = join(tmp, ".claude", "skills", "extract-facts", "SKILL.md");
+    expect(existsSync(skillPath)).toBe(true);
+    expect(readFileSync(skillPath, "utf-8")).toContain("name: extract-facts");
   });
 
   test("aborts if target directory already exists", () => {

@@ -31,6 +31,7 @@ describe("initRepo", () => {
 
     process.env.TEAM_MEMORY_DEVELOPER = "initdev";
     process.env.TEAM_MEMORY_CLAUDE_SETTINGS = makeClaudeSettingsPath(tmp);
+    process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR = join(tmp, ".claude", "skills");
   });
 
   afterEach(() => {
@@ -38,6 +39,7 @@ describe("initRepo", () => {
     delete process.env.TEAM_MEMORY_DEVELOPER;
     delete process.env.TEAM_MEMORY_DIR;
     delete process.env.TEAM_MEMORY_CLAUDE_SETTINGS;
+    delete process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR;
   });
 
   test("scaffolds README and config.yaml, runs setup, pushes", () => {
@@ -92,6 +94,18 @@ describe("initRepo", () => {
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     const cmd = settings.hooks.UserPromptSubmit[0].hooks[0].command;
     expect(cmd).toBe("team-memory preprompt-hook");
+  });
+
+  test("installs SessionEnd hook and extract-facts skill", () => {
+    const target = join(tmp, "with-skill");
+    initRepo({ org: "o", repo: "r", dir: target }, createRepo);
+
+    const settings = JSON.parse(readFileSync(makeClaudeSettingsPath(tmp), "utf-8"));
+    expect(settings.hooks.SessionEnd[0].hooks[0].command).toContain("/extract-facts");
+
+    const skillPath = join(tmp, ".claude", "skills", "extract-facts", "SKILL.md");
+    expect(existsSync(skillPath)).toBe(true);
+    expect(readFileSync(skillPath, "utf-8")).toContain("name: extract-facts");
   });
 
   test("passes <org>/<repo> slug to createRepo", () => {

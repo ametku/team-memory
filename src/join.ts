@@ -2,7 +2,7 @@ import { execFileSync } from "child_process";
 import { homedir } from "os";
 import { join } from "path";
 import { assertDirNotExists, postCloneSetup, PostCloneSetupResult } from "./setup.js";
-import { installClaudeHook } from "./claude-hook.js";
+import { installClaudeHook, installClaudeSkill } from "./claude-hook.js";
 
 export interface JoinInput {
   repoUrl: string;
@@ -25,6 +25,7 @@ export function joinRepo(input: JoinInput): JoinResult {
   const setup = postCloneSetup({ repoDir });
 
   installClaudeHook({ settingsPath: process.env.TEAM_MEMORY_CLAUDE_SETTINGS });
+  installClaudeSkill({ skillsDir: process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR });
 
   execFileSync("git", ["push", "origin", "HEAD"], { cwd: repoDir });
 
