@@ -49,6 +49,8 @@ export function queryFacts(input: QueryFactsInput): QueryResult[] {
       ORDER BY bm25(facts_view) * trust
       LIMIT ?
     `).all(ftsQuery, limit) as QueryResult[];
+  } catch {
+    return [];
   } finally {
     db.close();
   }

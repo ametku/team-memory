@@ -96,6 +96,20 @@ describe("runPrepromptHook", () => {
     expect(ctx).toContain("frontend fact");
   });
 
+  test("returns continue:true with no additionalContext when prompt has FTS special characters", () => {
+    seedAndBuild([{ content: "Rate limit is 100 requests per second" }]);
+
+    const result = runPrepromptHook({
+      prompt: `what"s the rate limit? OR AND (test)`,
+      indexPath,
+      repoDir,
+      developer: "alice",
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput).toBeUndefined();
+  });
+
   test("logs surface counts for returned facts", () => {
     seedAndBuild([{ content: "Use viper for config parsing" }]);
 

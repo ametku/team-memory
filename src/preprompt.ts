@@ -22,6 +22,14 @@ export interface PrepromptOutput {
 }
 
 export function runPrepromptHook(input: PrepromptInput): PrepromptOutput {
+  try {
+    return _runPrepromptHook(input);
+  } catch {
+    return { continue: true };
+  }
+}
+
+function _runPrepromptHook(input: PrepromptInput): PrepromptOutput {
   const { prompt, indexPath, repoDir, developer, project } = input;
 
   if (!existsSync(indexPath)) {

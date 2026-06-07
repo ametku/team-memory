@@ -219,6 +219,32 @@ describe("queryFacts", () => {
     });
   });
 
+  describe("FTS special characters", () => {
+    test("returns empty array for prompt containing double-quote (FTS syntax error)", () => {
+      seedAndBuild([{ content: "Rate limit is 100 requests per second" }]);
+
+      const results = queryFacts({ indexPath, query: `what"s the rate limit?` });
+
+      expect(results).toEqual([]);
+    });
+
+    test("returns empty array for prompt with bare AND/OR operators", () => {
+      seedAndBuild([{ content: "Rate limit is 100 requests per second" }]);
+
+      const results = queryFacts({ indexPath, query: "rate limit OR AND test" });
+
+      expect(results).toEqual([]);
+    });
+
+    test("returns empty array for prompt with unbalanced parentheses", () => {
+      seedAndBuild([{ content: "Rate limit is 100 requests per second" }]);
+
+      const results = queryFacts({ indexPath, query: "(test unbalanced" });
+
+      expect(results).toEqual([]);
+    });
+  });
+
   describe("performance", () => {
     test("completes query in under 100ms", () => {
       seedAndBuild(
