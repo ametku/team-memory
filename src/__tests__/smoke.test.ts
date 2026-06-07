@@ -409,6 +409,51 @@ describe("team-memory install-hook", () => {
   });
 });
 
+describe("team-memory join", () => {
+  let tmp: string;
+  let bareDir: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "tm-cli-join-"));
+    bareDir = join(tmp, "team.git");
+    const seed = join(tmp, "seed");
+    execFileSync("git", ["init", "--bare", bareDir]);
+    execFileSync("git", ["clone", bareDir, seed]);
+    execFileSync("git", ["config", "user.email", "seed@test.com"], { cwd: seed });
+    execFileSync("git", ["config", "user.name", "seed"], { cwd: seed });
+    execFileSync("git", ["commit", "--allow-empty", "-m", "initial"], { cwd: seed });
+    execFileSync("git", ["push", "origin", "HEAD"], { cwd: seed });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true });
+  });
+
+  it("clones repo and reports target dir", () => {
+    const target = join(tmp, "joined");
+    const output = execFileSync("node", [CLI_PATH, "join", bareDir, "--dir", target], {
+      encoding: "utf-8",
+      env: { ...process.env, TEAM_MEMORY_DEVELOPER: "joiner" },
+    });
+    expect(output).toContain("Joined");
+    expect(output).toContain(target);
+  });
+
+  it("exits 1 when no repo-url provided", () => {
+    expect(() =>
+      execFileSync("node", [CLI_PATH, "join"], {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DEVELOPER: "joiner" },
+      }),
+    ).toThrow();
+  });
+
+  it("includes join in --help output", () => {
+    const output = execFileSync("node", [CLI_PATH, "--help"], { encoding: "utf-8" });
+    expect(output).toContain("join");
+  });
+});
+
 describe("team-memory sync", () => {
   let dir: string;
 
