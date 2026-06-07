@@ -207,6 +207,50 @@ describe("merged-index", () => {
     });
   });
 
+  describe("edge cases", () => {
+    test("produces empty FTS table when no facts DBs exist", () => {
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT count(*) as cnt FROM facts_view").get() as any;
+      expect(row.cnt).toBe(0);
+      db.close();
+    });
+
+    test("works when interactions directory has no files", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Lonely fact" });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content, trust FROM facts_view").all() as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].trust).toBe(1.0);
+      db.close();
+    });
+
+    test("rebuilding twice overwrites cleanly", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "First build fact" });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const factsDb2 = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb2, { content: "Second build fact" });
+      factsDb2.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view").all() as any[];
+      expect(rows).toHaveLength(2);
+      db.close();
+    });
+  });
+
   describe("trust computation", () => {
     test("computes trust from aggregated interactions across developers", () => {
       const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
