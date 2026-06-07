@@ -28,7 +28,8 @@ Commands:
   prune                Remove stale or rejected facts
   sync                 Pull from remote and rebuild index
   install-hook         Install post-merge git hook for auto-rebuild
-  join <repo-url>      Clone an existing team-memory repo and onboard this dev
+  join <repo-url>      Clone an existing team-memory repo, onboard this dev,
+                       and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
 

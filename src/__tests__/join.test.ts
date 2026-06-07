@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
@@ -23,12 +23,14 @@ describe("joinRepo", () => {
     execFileSync("git", ["push", "origin", "HEAD"], { cwd: seedDir });
 
     process.env.TEAM_MEMORY_DEVELOPER = "joiner";
+    process.env.TEAM_MEMORY_CLAUDE_SETTINGS = join(tmp, ".claude", "settings.json");
   });
 
   afterEach(() => {
     rmSync(tmp, { recursive: true });
     delete process.env.TEAM_MEMORY_DEVELOPER;
     delete process.env.TEAM_MEMORY_DIR;
+    delete process.env.TEAM_MEMORY_CLAUDE_SETTINGS;
   });
 
   test("clones repo, runs setup, pushes per-dev DB commit", () => {
@@ -48,6 +50,18 @@ describe("joinRepo", () => {
     execFileSync("git", ["clone", bareDir, verify]);
     expect(existsSync(join(verify, "facts", "facts-joiner.db"))).toBe(true);
     expect(existsSync(join(verify, "interactions", "interactions-joiner.db"))).toBe(true);
+  });
+
+  test("installs Claude UserPromptSubmit hook in settings.json", () => {
+    const target = join(tmp, "with-hook");
+    joinRepo({ repoUrl: bareDir, dir: target });
+
+    const settingsPath = process.env.TEAM_MEMORY_CLAUDE_SETTINGS!;
+    expect(existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
+      "team-memory preprompt-hook",
+    );
   });
 
   test("aborts if target directory already exists", () => {
