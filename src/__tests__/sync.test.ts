@@ -58,4 +58,22 @@ describe("syncRepo", () => {
     expect(result.rebuildStats.devDbs).toBe(1);
     expect(result.rebuildStats.factsIndexed).toBe(1);
   });
+
+  test("continues with rebuild when pull fails (offline-graceful)", () => {
+    const db = openFactsDb(join(local, "facts"), "testdev");
+    insertFact(db, { content: "local fact before sync" });
+    db.close();
+    execFileSync("git", ["add", "."], { cwd: local });
+    execFileSync("git", ["commit", "-m", "add local fact"], { cwd: local });
+
+    execFileSync("git", ["remote", "set-url", "origin", "/nonexistent/path"], { cwd: local });
+
+    const indexPath = join(local, "merged_index.db");
+    const result = syncRepo({ repoDir: local, indexPath });
+
+    expect(result.pulled).toBe(false);
+    expect(result.pullWarning).toBeDefined();
+    expect(result.rebuildStats.devDbs).toBe(1);
+    expect(result.rebuildStats.factsIndexed).toBe(1);
+  });
 });
