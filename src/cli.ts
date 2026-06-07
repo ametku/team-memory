@@ -10,6 +10,7 @@ import { pruneFacts } from "./prune.js";
 import { syncRepo } from "./sync.js";
 import { installPostMergeHook } from "./hook.js";
 import { joinRepo } from "./join.js";
+import { initRepo } from "./init.js";
 import { resolveRepoDir } from "./repo.js";
 import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
@@ -28,6 +29,7 @@ Commands:
   sync                 Pull from remote and rebuild index
   install-hook         Install post-merge git hook for auto-rebuild
   join <repo-url>      Clone an existing team-memory repo and onboard this dev
+  init                 Create a new team-memory repo on GitHub and bootstrap it
 
 Options:
   --help               Show this help message
@@ -175,6 +177,27 @@ function main(): void {
       process.stdout.write(`Installed post-merge hook at ${result.hookPath}\n`);
     } else {
       process.stdout.write(`Skipped: hook already exists at ${result.hookPath}\n`);
+    }
+    return;
+  }
+
+  if (command === "init") {
+    const orgIdx = commandArgs.indexOf("--org");
+    const repoIdx = commandArgs.indexOf("--repo");
+    const org = orgIdx !== -1 ? commandArgs[orgIdx + 1] : undefined;
+    const repo = repoIdx !== -1 ? commandArgs[repoIdx + 1] : undefined;
+    if (!org || !repo) {
+      process.stderr.write("Error: --org and --repo are required\n");
+      process.exit(1);
+    }
+    const dirIdx = commandArgs.indexOf("--dir");
+    const dir = dirIdx !== -1 ? commandArgs[dirIdx + 1] : undefined;
+    try {
+      const result = initRepo({ org, repo, dir });
+      process.stdout.write(`Initialized ${org}/${repo} → ${result.repoDir}\n`);
+    } catch (e: any) {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
     }
     return;
   }

@@ -454,6 +454,22 @@ describe("team-memory join", () => {
   });
 });
 
+describe("team-memory init", () => {
+  it("exits 1 when --org or --repo missing", () => {
+    expect(() =>
+      execFileSync("node", [CLI_PATH, "init", "--repo", "x"], { encoding: "utf-8" }),
+    ).toThrow();
+    expect(() =>
+      execFileSync("node", [CLI_PATH, "init", "--org", "x"], { encoding: "utf-8" }),
+    ).toThrow();
+  });
+
+  it("includes init in --help output", () => {
+    const output = execFileSync("node", [CLI_PATH, "--help"], { encoding: "utf-8" });
+    expect(output).toContain("init");
+  });
+});
+
 describe("team-memory sync", () => {
   let dir: string;
 
