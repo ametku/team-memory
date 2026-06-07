@@ -82,3 +82,103 @@ describe("team-memory add", () => {
     ).toThrow();
   });
 });
+
+describe("team-memory query", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-cli-query-"));
+    mkdirSync(join(dir, "facts"));
+    mkdirSync(join(dir, "interactions"));
+    execFileSync("git", ["init"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "testdev"], { cwd: dir });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("queries facts and prints results", () => {
+    execFileSync(
+      "node",
+      [CLI_PATH, "add", "always use TLS in production"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+      },
+    );
+
+    execFileSync(
+      "node",
+      [CLI_PATH, "rebuild-index"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      },
+    );
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "query", "TLS production"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      },
+    );
+    expect(output).toContain("always use TLS in production");
+  });
+
+  it("exits 1 when no query text provided", () => {
+    expect(() =>
+      execFileSync("node", [CLI_PATH, "query"], {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      }),
+    ).toThrow();
+  });
+
+  it("prints helpful message when merged_index.db missing", () => {
+    try {
+      execFileSync("node", [CLI_PATH, "query", "anything"], {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      });
+    } catch (e: any) {
+      expect(e.stderr.toString()).toContain("rebuild-index");
+    }
+  });
+
+  it("respects --limit flag", () => {
+    for (let i = 0; i < 3; i++) {
+      execFileSync(
+        "node",
+        [CLI_PATH, "add", `config fact number ${i}`],
+        {
+          encoding: "utf-8",
+          env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+        },
+      );
+    }
+
+    execFileSync(
+      "node",
+      [CLI_PATH, "rebuild-index"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      },
+    );
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "query", "config fact", "--limit", "2"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      },
+    );
+    const lines = output.trim().split("\n").filter((l: string) => l.includes("config fact"));
+    expect(lines).toHaveLength(2);
+  });
+});
