@@ -338,5 +338,159 @@ describe("merged-index", () => {
       expect(row.trust).toBe(1.0);
       db.close();
     });
+
+    test("high surface count produces logarithmic growth (100 surfaces)", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "Highly surfaced fact" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 100, "2026-01-15T00:00:00.000Z", 0);
+      aliceInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(fact.id) as any;
+      // trust = (1 + ln(1 + 100)) * max(0.1, 1 + 0.5 * 0) = (1 + ln(101)) * 1.0
+      const expected = (1 + Math.log(101)) * 1.0;
+      expect(expected).toBeGreaterThan(1.0);
+      expect(row.trust).toBeCloseTo(expected, 5);
+      db.close();
+    });
+
+    test("single reject halves the explicit multiplier (boundary before exclusion)", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "Penalized but not excluded" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 10, "2026-01-15T00:00:00.000Z", -1);
+      aliceInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(fact.id) as any;
+      // net_explicit=-1 is the most negative non-excluded integer value
+      // trust = (1 + ln(11)) * max(0.1, 1 + 0.5*(-1)) = (1 + ln(11)) * 0.5
+      const expected = (1 + Math.log(11)) * 0.5;
+      expect(row.trust).toBeCloseTo(expected, 5);
+      db.close();
+    });
+
+    test("aggregates surfaces from 3+ developers correctly", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "Multi-dev fact" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 10, "2026-01-10T00:00:00.000Z", 0);
+      aliceInt.close();
+
+      const bobInt = openInteractionsDb(join(repoDir, "interactions"), "bob");
+      bobInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 7, "2026-01-12T00:00:00.000Z", 0);
+      bobInt.close();
+
+      const carolInt = openInteractionsDb(join(repoDir, "interactions"), "carol");
+      carolInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 3, "2026-01-14T00:00:00.000Z", 0);
+      carolInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(fact.id) as any;
+      // total_surfaces = 10 + 7 + 3 = 20, net_explicit = 0
+      // trust = (1 + ln(21)) * 1.0
+      const expected = (1 + Math.log(21)) * 1.0;
+      expect(row.trust).toBeCloseTo(expected, 5);
+      db.close();
+    });
+
+    test("comprehensive multi-dev scenario with mixed signals", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const popular = insertFact(factsDb, { content: "Popular well-trusted fact" });
+      const controversial = insertFact(factsDb, { content: "Controversial fact one reject" });
+      const rejected = insertFact(factsDb, { content: "Rejected by two devs" });
+      const fresh = insertFact(factsDb, { content: "Fresh fact no interactions" });
+      factsDb.close();
+
+      // Alice: surfaced popular 15x, surfaced controversial 5x, rejected rejected once
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(popular.id, 15, "2026-01-15T00:00:00.000Z", 0);
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(controversial.id, 5, "2026-01-10T00:00:00.000Z", 0);
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(rejected.id, 2, "2026-01-08T00:00:00.000Z", -1);
+      aliceInt.close();
+
+      // Bob: surfaced popular 10x, rejected controversial once, rejected rejected once
+      const bobInt = openInteractionsDb(join(repoDir, "interactions"), "bob");
+      bobInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(popular.id, 10, "2026-02-01T00:00:00.000Z", 0);
+      bobInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(controversial.id, 3, "2026-01-20T00:00:00.000Z", -1);
+      bobInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(rejected.id, 1, "2026-01-12T00:00:00.000Z", -1);
+      bobInt.close();
+
+      // Carol: surfaced popular 5x
+      const carolInt = openInteractionsDb(join(repoDir, "interactions"), "carol");
+      carolInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(popular.id, 5, "2026-02-05T00:00:00.000Z", 0);
+      carolInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+
+      // Popular: total_surfaces=30, net_explicit=0 → trust = (1 + ln(31)) * 1.0
+      const popularRow = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(popular.id) as any;
+      expect(popularRow.trust).toBeCloseTo((1 + Math.log(31)) * 1.0, 5);
+
+      // Controversial: total_surfaces=8, net_explicit=-1 → trust = (1 + ln(9)) * 0.5
+      const controversialRow = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(controversial.id) as any;
+      expect(controversialRow.trust).toBeCloseTo((1 + Math.log(9)) * 0.5, 5);
+
+      // Rejected: net_explicit = -2 → excluded entirely
+      const rejectedRow = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(rejected.id) as any;
+      expect(rejectedRow).toBeUndefined();
+
+      // Fresh: no interactions → trust = 1.0
+      const freshRow = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(fresh.id) as any;
+      expect(freshRow.trust).toBe(1.0);
+
+      // Verify ranking: popular > controversial > fresh (when querying "fact")
+      const rows = db.prepare(
+        "SELECT id, trust FROM facts_view WHERE facts_view MATCH ? ORDER BY bm25(facts_view) * trust"
+      ).all("fact") as any[];
+      const ids = rows.map((r: any) => r.id);
+      const popularIdx = ids.indexOf(popular.id);
+      const controversialIdx = ids.indexOf(controversial.id);
+      const freshIdx = ids.indexOf(fresh.id);
+      // Higher trust should rank earlier (bm25 is negative, * higher trust = more negative = earlier in ASC)
+      expect(popularIdx).toBeLessThan(freshIdx);
+      expect(controversialIdx).toBeLessThan(freshIdx);
+
+      db.close();
+    });
   });
 });
