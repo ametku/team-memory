@@ -217,6 +217,7 @@ function main(): void {
     try {
       const result = initRepo({ org, repo, dir });
       process.stdout.write(`Initialized ${org}/${repo} → ${result.repoDir}\n`);
+      process.stdout.write(`export TEAM_MEMORY_DIR=${result.repoDir}\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
       process.exit(1);

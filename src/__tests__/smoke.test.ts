@@ -1,6 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
 import { resolve } from "node:path";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -499,6 +499,46 @@ describe("team-memory init", () => {
   it("includes init in --help output", () => {
     const output = execFileSync("node", [CLI_PATH, "--help"], { encoding: "utf-8" });
     expect(output).toContain("init");
+  });
+
+  it("prints export TEAM_MEMORY_DIR=<path> after successful init", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "tm-init-output-"));
+    const bareDir = join(tmp, "remote.git");
+    const fakeGhDir = join(tmp, "fakebin");
+    const target = join(tmp, "new-team");
+    try {
+      execFileSync("git", ["init", "--bare", bareDir]);
+      mkdirSync(fakeGhDir);
+      writeFileSync(join(fakeGhDir, "gh"), `#!/bin/sh
+if [ "$2" = "clone" ]; then
+  git clone "$FAKE_GH_REMOTE" "$4"
+  git -C "$4" config user.email "test@test.com"
+  git -C "$4" config user.name "testdev"
+  git -C "$4" commit --allow-empty -m "initial"
+  git -C "$4" push origin HEAD
+fi
+`, { mode: 0o755 });
+
+      const output = execFileSync(
+        "node",
+        [CLI_PATH, "init", "--org", "o", "--repo", "r", "--dir", target],
+        {
+          encoding: "utf-8",
+          env: {
+            ...process.env,
+            PATH: `${fakeGhDir}:${process.env.PATH}`,
+            FAKE_GH_REMOTE: bareDir,
+            TEAM_MEMORY_DEVELOPER: "testdev",
+            TEAM_MEMORY_CLAUDE_SETTINGS: join(tmp, ".claude", "settings.json"),
+            TEAM_MEMORY_CLAUDE_SKILLS_DIR: join(tmp, ".claude", "skills"),
+          },
+        },
+      );
+
+      expect(output).toContain(`export TEAM_MEMORY_DIR=${target}`);
+    } finally {
+      rmSync(tmp, { recursive: true });
+    }
   });
 });
 
