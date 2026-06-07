@@ -132,6 +132,81 @@ describe("merged-index", () => {
     });
   });
 
+  describe("FTS5 search", () => {
+    test("MATCH queries find facts by content", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Use viper for config parsing in Go services" });
+      insertFact(factsDb, { content: "Stripe webhooks must be idempotent" });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view WHERE facts_view MATCH ?").all("viper config") as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].content).toContain("viper");
+      db.close();
+    });
+
+    test("MATCH queries find facts by tags", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Some networking fact", tags: ["category:gotcha", "docker", "networking"] });
+      insertFact(factsDb, { content: "Unrelated fact", tags: ["category:convention", "testing"] });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view WHERE facts_view MATCH ?").all("docker") as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].content).toBe("Some networking fact");
+      db.close();
+    });
+
+    test("MATCH queries find facts by project", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Payments fact", project: "payments-service" });
+      insertFact(factsDb, { content: "Frontend fact", project: "web-app" });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view WHERE facts_view MATCH ?").all("payments") as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].content).toBe("Payments fact");
+      db.close();
+    });
+
+    test("results can be ranked by bm25 * trust", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const highTrust = insertFact(factsDb, { content: "Config parsing with viper is required" });
+      const lowTrust = insertFact(factsDb, { content: "Config parsing alternative exists" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(highTrust.id, 20, "2026-01-15T00:00:00.000Z", 0);
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(lowTrust.id, 1, "2026-01-01T00:00:00.000Z", 0);
+      aliceInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare(
+        "SELECT content, trust, bm25(facts_view) AS bm25_score FROM facts_view WHERE facts_view MATCH ? ORDER BY bm25(facts_view) * trust"
+      ).all("config parsing") as any[];
+      expect(rows).toHaveLength(2);
+      // bm25 returns negative values; more negative = better match
+      // Multiplying by trust (positive) keeps the order: more negative * higher trust = most negative = first in ASC
+      expect(rows[0].content).toContain("viper");
+      db.close();
+    });
+  });
+
   describe("trust computation", () => {
     test("computes trust from aggregated interactions across developers", () => {
       const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
