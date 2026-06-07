@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { dirname } from "path";
+import { dirname, join } from "path";
 import { mkdirSync } from "fs";
 import { addFact } from "./add.js";
 import { rejectFact } from "./reject.js";
@@ -13,6 +13,8 @@ import { joinRepo } from "./join.js";
 import { resolveRepoDir } from "./repo.js";
 import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
+import { runPrepromptHook } from "./preprompt.js";
+import { commitInteractions } from "./surface-logging.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
 
@@ -27,6 +29,8 @@ Commands:
   prune                Remove stale or rejected facts
   sync                 Pull from remote and rebuild index
   install-hook         Install post-merge git hook for auto-rebuild
+  preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
+  session-end          Commit accumulated surface interactions to git
   join <repo-url>      Clone an existing team-memory repo and onboard this dev
 
 Options:
@@ -216,6 +220,37 @@ function main(): void {
     process.stdout.write(
       `Synced: ${result.rebuildStats.devDbs} dev DBs, ${result.rebuildStats.factsIndexed} facts indexed in ${duration}s\n`
     );
+    return;
+  }
+
+  if (command === "preprompt-hook") {
+    let raw = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk: string) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      let prompt = "";
+      try {
+        const payload = JSON.parse(raw);
+        prompt = payload.prompt ?? "";
+      } catch {
+        process.stdout.write(JSON.stringify({ continue: true }));
+        return;
+      }
+      const indexPath = resolveIndexPath();
+      const repoDir = resolveRepoDir();
+      const developer = (() => {
+        try { return getDeveloperName(); } catch { return "unknown"; }
+      })();
+      const result = runPrepromptHook({ prompt, indexPath, repoDir, developer });
+      process.stdout.write(JSON.stringify(result));
+    });
+    return;
+  }
+
+  if (command === "session-end") {
+    const repoDir = resolveRepoDir();
+    const developer = getDeveloperName();
+    commitInteractions(join(repoDir, "interactions"), developer);
     return;
   }
 
