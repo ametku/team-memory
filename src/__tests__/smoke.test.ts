@@ -114,7 +114,7 @@ describe("team-memory query", () => {
       [CLI_PATH, "rebuild-index"],
       {
         encoding: "utf-8",
-        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
       },
     );
 
@@ -123,7 +123,7 @@ describe("team-memory query", () => {
       [CLI_PATH, "query", "TLS production"],
       {
         encoding: "utf-8",
-        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
       },
     );
     expect(output).toContain("always use TLS in production");
@@ -133,7 +133,7 @@ describe("team-memory query", () => {
     expect(() =>
       execFileSync("node", [CLI_PATH, "query"], {
         encoding: "utf-8",
-        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
       }),
     ).toThrow();
   });
@@ -142,7 +142,7 @@ describe("team-memory query", () => {
     try {
       execFileSync("node", [CLI_PATH, "query", "anything"], {
         encoding: "utf-8",
-        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
       });
     } catch (e: any) {
       expect(e.stderr.toString()).toContain("rebuild-index");
@@ -166,7 +166,7 @@ describe("team-memory query", () => {
       [CLI_PATH, "rebuild-index"],
       {
         encoding: "utf-8",
-        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
       },
     );
 
@@ -175,7 +175,7 @@ describe("team-memory query", () => {
       [CLI_PATH, "query", "config fact", "--limit", "2"],
       {
         encoding: "utf-8",
-        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
       },
     );
     const lines = output.trim().split("\n").filter((l: string) => l.includes("config fact"));

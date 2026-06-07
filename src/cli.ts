@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
-import { join } from "path";
+import { dirname } from "path";
+import { mkdirSync } from "fs";
 import { addFact } from "./add.js";
 import { queryFacts } from "./query.js";
 import { rebuildIndex } from "./merged-index.js";
 import { resolveRepoDir } from "./repo.js";
+import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
@@ -84,8 +86,7 @@ function main(): void {
       limit = parseInt(commandArgs[limitIdx + 1], 10);
     }
 
-    const repoDir = resolveRepoDir();
-    const indexPath = join(repoDir, "merged_index.db");
+    const indexPath = resolveIndexPath();
 
     try {
       const results = queryFacts({ indexPath, query: queryText, limit });
@@ -104,9 +105,12 @@ function main(): void {
 
   if (command === "rebuild-index") {
     const repoDir = resolveRepoDir();
-    const outputPath = join(repoDir, "merged_index.db");
-    rebuildIndex(repoDir, outputPath);
-    process.stdout.write("Index rebuilt.\n");
+    const outputPath = resolveIndexPath();
+    mkdirSync(dirname(outputPath), { recursive: true });
+    const start = performance.now();
+    const stats = rebuildIndex(repoDir, outputPath);
+    const duration = ((performance.now() - start) / 1000).toFixed(2);
+    process.stdout.write(`Rebuilt index: ${stats.devDbs} dev DBs, ${stats.factsIndexed} facts indexed in ${duration}s\n`);
     return;
   }
 
