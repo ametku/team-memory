@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { execFileSync } from "child_process";
 import { syncRepo } from "../sync.js";
 import { openFactsDb, insertFact } from "../facts-db.js";
+import { queryFacts } from "../query.js";
 
 describe("syncRepo", () => {
   let remote: string;
@@ -103,5 +104,43 @@ describe("syncRepo", () => {
     expect(result.pullWarning).toBeDefined();
     expect(result.rebuildStats.devDbs).toBe(1);
     expect(result.rebuildStats.factsIndexed).toBe(1);
+  });
+
+  test("index includes facts from multiple devs after sync", () => {
+    const db1 = openFactsDb(join(local, "facts"), "dev1");
+    insertFact(db1, { content: "dev1 rule: always use strict mode" });
+    db1.close();
+    execFileSync("git", ["add", "."], { cwd: local });
+    execFileSync("git", ["commit", "-m", "dev1 fact"], { cwd: local });
+    execFileSync("git", ["push", "origin", "main"], { cwd: local });
+
+    const clone2 = mkdtempSync(join(tmpdir(), "tm-sync-int-"));
+    rmSync(clone2, { recursive: true });
+    execFileSync("git", ["clone", remote, clone2]);
+    execFileSync("git", ["config", "user.email", "dev2@test.com"], { cwd: clone2 });
+    execFileSync("git", ["config", "user.name", "dev2"], { cwd: clone2 });
+    mkdirSync(join(clone2, "facts"), { recursive: true });
+    mkdirSync(join(clone2, "interactions"), { recursive: true });
+
+    const db2 = openFactsDb(join(clone2, "facts"), "dev2");
+    insertFact(db2, { content: "dev2 rule: never commit secrets" });
+    db2.close();
+    execFileSync("git", ["add", "."], { cwd: clone2 });
+    execFileSync("git", ["commit", "-m", "dev2 fact"], { cwd: clone2 });
+    execFileSync("git", ["push", "origin", "main"], { cwd: clone2 });
+    rmSync(clone2, { recursive: true });
+
+    const indexPath = join(local, "merged_index.db");
+    const result = syncRepo({ repoDir: local, indexPath });
+
+    expect(result.pulled).toBe(true);
+    expect(result.rebuildStats.devDbs).toBe(2);
+    expect(result.rebuildStats.factsIndexed).toBe(2);
+
+    const r1 = queryFacts({ indexPath, query: "strict mode", limit: 10 });
+    expect(r1.map(r => r.content)).toContain("dev1 rule: always use strict mode");
+
+    const r2 = queryFacts({ indexPath, query: "commit secrets", limit: 10 });
+    expect(r2.map(r => r.content)).toContain("dev2 rule: never commit secrets");
   });
 });
