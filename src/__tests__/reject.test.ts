@@ -39,4 +39,41 @@ describe("rejectFact", () => {
     expect(row.explicit_score).toBe(-1);
     expect(row.surface_count).toBe(0);
   });
+
+  test("rejecting same fact twice keeps explicit_score at -1", () => {
+    const factsDb = openFactsDb(join(dir, "facts"), "alice");
+    const fact = insertFact(factsDb, { content: "use pnpm" });
+    factsDb.exec("VACUUM");
+    factsDb.close();
+
+    rejectFact({ factId: fact.id, repoDir: dir, developer: "bob" });
+    rejectFact({ factId: fact.id, repoDir: dir, developer: "bob" });
+
+    const iDb = openInteractionsDb(join(dir, "interactions"), "bob");
+    const row = iDb.prepare("SELECT explicit_score FROM interactions WHERE fact_id = ?").get(fact.id) as any;
+    iDb.close();
+    expect(row.explicit_score).toBe(-1);
+  });
+
+  test("reject preserves existing surface_count and last_surfaced_at", () => {
+    const factsDb = openFactsDb(join(dir, "facts"), "alice");
+    const fact = insertFact(factsDb, { content: "check CI before merge" });
+    factsDb.exec("VACUUM");
+    factsDb.close();
+
+    const iDb = openInteractionsDb(join(dir, "interactions"), "bob");
+    iDb.prepare(
+      "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, 5, '2026-01-01T00:00:00Z', 0)"
+    ).run(fact.id);
+    iDb.close();
+
+    rejectFact({ factId: fact.id, repoDir: dir, developer: "bob" });
+
+    const iDb2 = openInteractionsDb(join(dir, "interactions"), "bob");
+    const row = iDb2.prepare("SELECT surface_count, last_surfaced_at, explicit_score FROM interactions WHERE fact_id = ?").get(fact.id) as any;
+    iDb2.close();
+    expect(row.explicit_score).toBe(-1);
+    expect(row.surface_count).toBe(5);
+    expect(row.last_surfaced_at).toBe("2026-01-01T00:00:00Z");
+  });
 });
