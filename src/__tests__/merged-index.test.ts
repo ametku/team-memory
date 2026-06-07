@@ -83,6 +83,55 @@ describe("merged-index", () => {
     });
   });
 
+  describe("exclusion of heavily-rejected facts", () => {
+    test("excludes facts with net_explicit <= -2", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Acceptable fact" });
+      const rejected = insertFact(factsDb, { content: "Bad fact" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(rejected.id, 2, "2026-01-10T00:00:00.000Z", -1);
+      aliceInt.close();
+
+      const bobInt = openInteractionsDb(join(repoDir, "interactions"), "bob");
+      bobInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(rejected.id, 1, "2026-01-12T00:00:00.000Z", -1);
+      bobInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view").all() as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].content).toBe("Acceptable fact");
+      db.close();
+    });
+
+    test("includes facts with net_explicit = -1 (single reject)", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "One reject only" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 3, "2026-01-10T00:00:00.000Z", -1);
+      aliceInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view").all() as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].content).toBe("One reject only");
+      db.close();
+    });
+  });
+
   describe("trust computation", () => {
     test("computes trust from aggregated interactions across developers", () => {
       const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
