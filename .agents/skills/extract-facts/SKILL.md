@@ -68,5 +68,4 @@ Note: `docker`, `compose`, and `hyphen` are already in the content, so they are 
 
 ## See also
 
-- Fact definition: `ARCHITECTURE-V1.md` lines 16-30
 - CLI reference: `team-memory --help`
