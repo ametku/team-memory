@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
+import { join } from "path";
 import { addFact } from "./add.js";
+import { queryFacts } from "./query.js";
+import { rebuildIndex } from "./merged-index.js";
 import { resolveRepoDir } from "./repo.js";
 import { getDeveloperName } from "./developer.js";
 
@@ -65,6 +68,45 @@ function main(): void {
     const developer = getDeveloperName();
     const fact = addFact({ content, repoDir, developer, project, tags });
     process.stdout.write(`${fact.id}\n`);
+    return;
+  }
+
+  if (command === "query") {
+    const queryText = commandArgs[0];
+    if (!queryText) {
+      process.stderr.write("Error: <text> is required\n");
+      process.exit(1);
+    }
+
+    let limit = 5;
+    const limitIdx = commandArgs.indexOf("--limit");
+    if (limitIdx !== -1 && commandArgs[limitIdx + 1]) {
+      limit = parseInt(commandArgs[limitIdx + 1], 10);
+    }
+
+    const repoDir = resolveRepoDir();
+    const indexPath = join(repoDir, "merged_index.db");
+
+    try {
+      const results = queryFacts({ indexPath, query: queryText, limit });
+      for (const r of results) {
+        process.stdout.write(`[${r.id}] (trust: ${r.trust.toFixed(2)}) ${r.content}`);
+        if (r.project) process.stdout.write(` [project: ${r.project}]`);
+        if (r.tags) process.stdout.write(` [tags: ${r.tags}]`);
+        process.stdout.write("\n");
+      }
+    } catch (e: any) {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (command === "rebuild-index") {
+    const repoDir = resolveRepoDir();
+    const outputPath = join(repoDir, "merged_index.db");
+    rebuildIndex(repoDir, outputPath);
+    process.stdout.write("Index rebuilt.\n");
     return;
   }
 
