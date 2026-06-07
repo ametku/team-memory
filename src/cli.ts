@@ -7,6 +7,7 @@ import { rejectFact } from "./reject.js";
 import { queryFacts } from "./query.js";
 import { rebuildIndex } from "./merged-index.js";
 import { pruneFacts } from "./prune.js";
+import { syncRepo } from "./sync.js";
 import { resolveRepoDir } from "./repo.js";
 import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
@@ -160,6 +161,28 @@ function main(): void {
       const preview = fact.content.length > 60 ? fact.content.slice(0, 60) + "..." : fact.content;
       process.stdout.write(`  [${fact.id}] (${fact.reason}) ${preview}\n`);
     }
+    return;
+  }
+
+  if (command === "sync") {
+    const repoDir = resolveRepoDir();
+    const indexPath = resolveIndexPath();
+    mkdirSync(dirname(indexPath), { recursive: true });
+    const push = commandArgs.includes("--push");
+
+    const start = performance.now();
+    const result = syncRepo({ repoDir, indexPath, push });
+    const duration = ((performance.now() - start) / 1000).toFixed(2);
+
+    if (result.pullWarning) {
+      process.stdout.write(`Warning: pull failed, rebuilding from local cache\n`);
+    }
+    if (result.pushed) {
+      process.stdout.write("Pushed local commits.\n");
+    }
+    process.stdout.write(
+      `Synced: ${result.rebuildStats.devDbs} dev DBs, ${result.rebuildStats.factsIndexed} facts indexed in ${duration}s\n`
+    );
     return;
   }
 

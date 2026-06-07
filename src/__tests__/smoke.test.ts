@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { openInteractionsDb } from "../interactions-db.js";
-import { openFactsDb } from "../facts-db.js";
+import { openFactsDb, insertFact } from "../facts-db.js";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../dist/cli.js");
 
@@ -367,5 +367,57 @@ describe("team-memory prune", () => {
       },
     );
     expect(output).toContain("Nothing to prune");
+  });
+});
+
+describe("team-memory sync", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-cli-sync-"));
+    mkdirSync(join(dir, "facts"), { recursive: true });
+    mkdirSync(join(dir, "interactions"), { recursive: true });
+    execFileSync("git", ["init"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "testdev"], { cwd: dir });
+    execFileSync("git", ["add", "."], { cwd: dir });
+    execFileSync("git", ["commit", "--allow-empty", "-m", "init"], { cwd: dir });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("syncs and reports rebuild stats", () => {
+    const db = openFactsDb(join(dir, "facts"), "testdev");
+    insertFact(db, { content: "sync test fact" });
+    db.close();
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "sync"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+      },
+    );
+    expect(output).toContain("facts indexed");
+  });
+
+  it("warns when pull fails but still rebuilds", () => {
+    const db = openFactsDb(join(dir, "facts"), "testdev");
+    insertFact(db, { content: "offline test fact" });
+    db.close();
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "sync"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+      },
+    );
+    expect(output).toContain("Warning");
+    expect(output).toContain("facts indexed");
   });
 });
