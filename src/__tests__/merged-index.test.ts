@@ -251,6 +251,110 @@ describe("merged-index", () => {
     });
   });
 
+  describe("tag normalization at rebuild time", () => {
+    test("indexes mixed-case tags as lowercase tokens (FTS5 match)", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Some networking fact", tags: ["Category:Gotcha", "Docker", "NETWORKING"] });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const lowerHit = db.prepare("SELECT content FROM facts_view WHERE facts_view MATCH ?").all("docker") as any[];
+      const stored = db.prepare("SELECT tags FROM facts_view").get() as any;
+      expect(lowerHit).toHaveLength(1);
+      expect(stored.tags).toBe('["category:gotcha","docker","networking"]');
+      db.close();
+    });
+
+    test("dedupes tags that collide after lowercasing", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Dup fact", tags: ["Docker", "docker", "DOCKER", "networking"] });
+      factsDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const stored = db.prepare("SELECT tags FROM facts_view").get() as any;
+      expect(JSON.parse(stored.tags)).toEqual(["docker", "networking"]);
+      db.close();
+    });
+
+    test("indexes facts with unknown category but logs a warning", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Bug fact", tags: ["category:bug", "docker"] });
+      factsDb.close();
+
+      const warnings: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      (process.stderr.write as any) = (chunk: any) => {
+        warnings.push(typeof chunk === "string" ? chunk : chunk.toString());
+        return true;
+      };
+      try {
+        rebuildIndex(repoDir, outputPath);
+      } finally {
+        process.stderr.write = orig;
+      }
+
+      const db = new Database(outputPath);
+      const rows = db.prepare("SELECT content FROM facts_view").all() as any[];
+      expect(rows).toHaveLength(1);
+      db.close();
+      expect(warnings.join("")).toMatch(/unknown category.*bug/i);
+    });
+
+    test("malformed tags JSON skips tags but keeps fact + logs warning", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "Broken tags fact" });
+      factsDb.prepare("UPDATE facts SET tags = ? WHERE id = ?").run("not-json", fact.id);
+      factsDb.close();
+
+      const warnings: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      (process.stderr.write as any) = (chunk: any) => {
+        warnings.push(typeof chunk === "string" ? chunk : chunk.toString());
+        return true;
+      };
+      try {
+        rebuildIndex(repoDir, outputPath);
+      } finally {
+        process.stderr.write = orig;
+      }
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT content, tags FROM facts_view").get() as any;
+      expect(row.content).toBe("Broken tags fact");
+      expect(row.tags).toBe("");
+      db.close();
+      expect(warnings.join("")).toMatch(/malformed/i);
+    });
+
+    test("legacy facts without category prefix index keywords without warning", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "Legacy fact", tags: ["docker", "networking"] });
+      factsDb.close();
+
+      const warnings: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      (process.stderr.write as any) = (chunk: any) => {
+        warnings.push(typeof chunk === "string" ? chunk : chunk.toString());
+        return true;
+      };
+      try {
+        rebuildIndex(repoDir, outputPath);
+      } finally {
+        process.stderr.write = orig;
+      }
+
+      const db = new Database(outputPath);
+      const hit = db.prepare("SELECT content FROM facts_view WHERE facts_view MATCH ?").all("networking") as any[];
+      expect(hit).toHaveLength(1);
+      db.close();
+      expect(warnings.join("")).toBe("");
+    });
+  });
+
   describe("stats return value", () => {
     test("returns devDbs and factsIndexed counts", () => {
       const aliceDb = openFactsDb(join(repoDir, "facts"), "alice");
