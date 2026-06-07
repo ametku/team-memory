@@ -199,4 +199,17 @@ describe("pruneFacts", () => {
     db.close();
     expect(row).toBeDefined();
   });
+
+  test("returns empty result when developer has no facts", () => {
+    const factsDb = openFactsDb(join(dir, "facts"), "alice");
+    factsDb.exec("VACUUM");
+    factsDb.close();
+
+    execFileSync("git", ["add", "facts/facts-alice.db"], { cwd: dir });
+    execFileSync("git", ["commit", "-m", "setup"], { cwd: dir });
+
+    const result = pruneFacts({ repoDir: dir, developer: "alice" });
+
+    expect(result.pruned).toHaveLength(0);
+  });
 });
