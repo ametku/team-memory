@@ -5,6 +5,10 @@ import { tmpdir } from "os";
 import { execFileSync } from "child_process";
 import { initRepo, RepoCreator } from "../init.js";
 
+function makeClaudeSettingsPath(tmp: string): string {
+  return join(tmp, ".claude", "settings.json");
+}
+
 describe("initRepo", () => {
   let tmp: string;
   let bareDir: string;
@@ -26,12 +30,14 @@ describe("initRepo", () => {
     };
 
     process.env.TEAM_MEMORY_DEVELOPER = "initdev";
+    process.env.TEAM_MEMORY_CLAUDE_SETTINGS = makeClaudeSettingsPath(tmp);
   });
 
   afterEach(() => {
     rmSync(tmp, { recursive: true });
     delete process.env.TEAM_MEMORY_DEVELOPER;
     delete process.env.TEAM_MEMORY_DIR;
+    delete process.env.TEAM_MEMORY_CLAUDE_SETTINGS;
   });
 
   test("scaffolds README and config.yaml, runs setup, pushes", () => {
@@ -75,6 +81,17 @@ describe("initRepo", () => {
 
     expect(result.repoDir).toBe(target);
     expect(existsSync(join(target, "config.yaml"))).toBe(true);
+  });
+
+  test("installs Claude UserPromptSubmit hook in settings.json", () => {
+    const target = join(tmp, "with-hook");
+    initRepo({ org: "o", repo: "r", dir: target }, createRepo);
+
+    const settingsPath = makeClaudeSettingsPath(tmp);
+    expect(existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    const cmd = settings.hooks.UserPromptSubmit[0].hooks[0].command;
+    expect(cmd).toBe("team-memory preprompt-hook");
   });
 
   test("passes <org>/<repo> slug to createRepo", () => {

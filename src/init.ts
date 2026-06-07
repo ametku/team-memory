@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { assertDirNotExists, postCloneSetup, PostCloneSetupResult } from "./setup.js";
 import { getDeveloperName } from "./developer.js";
+import { installClaudeHook } from "./claude-hook.js";
 
 export interface InitInput {
   org: string;
@@ -46,6 +47,8 @@ export function initRepo(input: InitInput, createRepo: RepoCreator = ghRepoCreat
   execFileSync("git", ["commit", "-m", "chore: initialize team-memory repo"], { cwd: repoDir });
 
   const setup = postCloneSetup({ repoDir });
+
+  installClaudeHook({ settingsPath: process.env.TEAM_MEMORY_CLAUDE_SETTINGS });
 
   execFileSync("git", ["push", "origin", "HEAD"], { cwd: repoDir });
 

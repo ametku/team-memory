@@ -29,7 +29,8 @@ Commands:
   sync                 Pull from remote and rebuild index
   install-hook         Install post-merge git hook for auto-rebuild
   join <repo-url>      Clone an existing team-memory repo and onboard this dev
-  init                 Create a new team-memory repo on GitHub and bootstrap it
+  init                 Create a new team-memory repo on GitHub, bootstrap it,
+                       and install the Claude pre-prompt hook in ~/.claude/settings.json
 
 Options:
   --help               Show this help message
