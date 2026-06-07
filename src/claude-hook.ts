@@ -1,8 +1,12 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "fs";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
 import { homedir } from "os";
 
-const HOOK_COMMAND = "team-memory preprompt-hook";
+const PREPROMPT_COMMAND = "team-memory preprompt-hook";
+const SESSION_END_COMMAND =
+  "echo 'team-memory: run /extract-facts before quitting to save anything worth keeping.'";
+const SKILL_NAME = "extract-facts";
 
 export interface InstallClaudeHookInput {
   settingsPath?: string;
@@ -10,7 +14,8 @@ export interface InstallClaudeHookInput {
 
 export interface InstallClaudeHookResult {
   settingsPath: string;
-  installed: boolean;
+  prepromptInstalled: boolean;
+  sessionEndInstalled: boolean;
 }
 
 interface ClaudeHookEntry {
@@ -23,8 +28,18 @@ interface ClaudeHookGroup {
 }
 
 interface ClaudeSettings {
-  hooks?: { UserPromptSubmit?: ClaudeHookGroup[] } & Record<string, unknown>;
+  hooks?: {
+    UserPromptSubmit?: ClaudeHookGroup[];
+    SessionEnd?: ClaudeHookGroup[];
+  } & Record<string, unknown>;
   [key: string]: unknown;
+}
+
+function ensureHook(groups: ClaudeHookGroup[], command: string): boolean {
+  const present = groups.some((g) => g.hooks?.some((h) => h.command === command));
+  if (present) return false;
+  groups.push({ hooks: [{ type: "command", command }] });
+  return true;
 }
 
 export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallClaudeHookResult {
@@ -36,21 +51,50 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
 
   settings.hooks ??= {};
   settings.hooks.UserPromptSubmit ??= [];
+  settings.hooks.SessionEnd ??= [];
 
-  const alreadyInstalled = settings.hooks.UserPromptSubmit.some((group) =>
-    group.hooks?.some((h) => h.command === HOOK_COMMAND),
-  );
+  const prepromptInstalled = ensureHook(settings.hooks.UserPromptSubmit, PREPROMPT_COMMAND);
+  const sessionEndInstalled = ensureHook(settings.hooks.SessionEnd, SESSION_END_COMMAND);
 
-  if (alreadyInstalled) {
-    return { settingsPath, installed: false };
+  if (prepromptInstalled || sessionEndInstalled) {
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   }
 
-  settings.hooks.UserPromptSubmit.push({
-    hooks: [{ type: "command", command: HOOK_COMMAND }],
-  });
+  return { settingsPath, prepromptInstalled, sessionEndInstalled };
+}
 
-  mkdirSync(dirname(settingsPath), { recursive: true });
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+export interface InstallClaudeSkillInput {
+  skillsDir?: string;
+  sourcePath?: string;
+}
 
-  return { settingsPath, installed: true };
+export interface InstallClaudeSkillResult {
+  destPath: string;
+  installed: boolean;
+}
+
+function defaultSkillSourcePath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, "..", ".agents", "skills", SKILL_NAME, "SKILL.md");
+}
+
+export function installClaudeSkill(input: InstallClaudeSkillInput = {}): InstallClaudeSkillResult {
+  const skillsDir = input.skillsDir ?? join(homedir(), ".claude", "skills");
+  const sourcePath = input.sourcePath ?? defaultSkillSourcePath();
+  const destDir = join(skillsDir, SKILL_NAME);
+  const destPath = join(destDir, "SKILL.md");
+
+  if (!existsSync(sourcePath)) {
+    throw new Error(`Skill source not found: ${sourcePath}`);
+  }
+
+  mkdirSync(destDir, { recursive: true });
+
+  if (existsSync(destPath) && readFileSync(destPath, "utf-8") === readFileSync(sourcePath, "utf-8")) {
+    return { destPath, installed: false };
+  }
+
+  copyFileSync(sourcePath, destPath);
+  return { destPath, installed: true };
 }

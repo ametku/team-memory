@@ -6,6 +6,10 @@
   "bin": {
     "team-memory": "./dist/cli.js"
   },
+  "files": [
+    "dist/",
+    ".agents/skills/extract-facts/"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
