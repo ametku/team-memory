@@ -76,4 +76,22 @@ describe("rejectFact", () => {
     expect(row.surface_count).toBe(5);
     expect(row.last_surfaced_at).toBe("2026-01-01T00:00:00Z");
   });
+
+  test("throws error for non-existent fact_id", () => {
+    expect(() =>
+      rejectFact({ factId: "nonexist", repoDir: dir, developer: "bob" })
+    ).toThrow("Fact not found: nonexist");
+  });
+
+  test("throws error for soft-deleted fact", () => {
+    const factsDb = openFactsDb(join(dir, "facts"), "alice");
+    const fact = insertFact(factsDb, { content: "old fact" });
+    factsDb.prepare("UPDATE facts SET deleted_at = ? WHERE id = ?").run(new Date().toISOString(), fact.id);
+    factsDb.exec("VACUUM");
+    factsDb.close();
+
+    expect(() =>
+      rejectFact({ factId: fact.id, repoDir: dir, developer: "bob" })
+    ).toThrow(`Fact not found: ${fact.id}`);
+  });
 });
