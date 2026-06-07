@@ -19,7 +19,8 @@ export interface InitResult {
 export type RepoCreator = (slug: string, dir: string) => void;
 
 const ghRepoCreate: RepoCreator = (slug, dir) => {
-  execFileSync("gh", ["repo", "create", slug, "--private", "--clone", "--clone-dir", dir]);
+  execFileSync("gh", ["repo", "create", slug, "--private"]);
+  execFileSync("gh", ["repo", "clone", slug, dir]);
 };
 
 export function initRepo(input: InitInput, createRepo: RepoCreator = ghRepoCreate): InitResult {
