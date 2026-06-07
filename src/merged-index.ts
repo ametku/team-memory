@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { readdirSync } from "fs";
 import { join } from "path";
+import { normalizeTags } from "./tags.js";
 
 export interface RebuildStats {
   devDbs: number;
@@ -75,17 +76,16 @@ export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats 
     )
   `);
 
-  db.exec(`
-    INSERT INTO facts_view (id, content, tags, project, trust)
+  const rows = db.prepare(`
     SELECT
       f.id,
       f.content,
-      COALESCE(f.tags, ''),
-      COALESCE(f.project, ''),
+      f.tags AS raw_tags,
+      COALESCE(f.project, '') AS project,
       CASE
         WHEN agg.total_surfaces IS NULL THEN 1.0
         ELSE (1.0 + ln(1.0 + agg.total_surfaces)) * max(0.1, 1.0 + 0.5 * agg.net_explicit)
-      END
+      END AS trust
     FROM staged_facts f
     LEFT JOIN (
       SELECT
@@ -97,7 +97,20 @@ export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats 
       GROUP BY fact_id
     ) agg ON agg.fact_id = f.id
     WHERE agg.net_explicit IS NULL OR agg.net_explicit > -2
+  `).all() as { id: string; content: string; raw_tags: string | null; project: string; trust: number }[];
+
+  const insert = db.prepare(`
+    INSERT INTO facts_view (id, content, tags, project, trust)
+    VALUES (?, ?, ?, ?, ?)
   `);
+  for (const row of rows) {
+    const { tags, warning } = normalizeTags(row.raw_tags);
+    if (warning) {
+      process.stderr.write(`team-memory: fact ${row.id}: ${warning}\n`);
+    }
+    const tagsJson = tags.length === 0 ? "" : JSON.stringify(tags);
+    insert.run(row.id, row.content, tagsJson, row.project, row.trust);
+  }
 
   db.exec(`DROP TABLE staged_facts`);
   db.exec(`DROP TABLE staged_interactions`);
