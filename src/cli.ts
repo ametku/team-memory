@@ -6,6 +6,7 @@ import { addFact } from "./add.js";
 import { rejectFact } from "./reject.js";
 import { queryFacts } from "./query.js";
 import { rebuildIndex } from "./merged-index.js";
+import { pruneFacts } from "./prune.js";
 import { resolveRepoDir } from "./repo.js";
 import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
@@ -131,6 +132,34 @@ function main(): void {
     const stats = rebuildIndex(repoDir, outputPath);
     const duration = ((performance.now() - start) / 1000).toFixed(2);
     process.stdout.write(`Rebuilt index: ${stats.devDbs} dev DBs, ${stats.factsIndexed} facts indexed in ${duration}s\n`);
+    return;
+  }
+
+  if (command === "prune") {
+    const repoDir = resolveRepoDir();
+    const developer = getDeveloperName();
+    const dryRun = commandArgs.includes("--dry-run");
+
+    const result = pruneFacts({ repoDir, developer, dryRun });
+
+    if (result.pruned.length === 0) {
+      process.stdout.write("Nothing to prune.\n");
+      return;
+    }
+
+    if (dryRun) {
+      process.stdout.write("dry-run: would prune the following facts:\n");
+    } else {
+      const outputPath = resolveIndexPath();
+      mkdirSync(dirname(outputPath), { recursive: true });
+      rebuildIndex(repoDir, outputPath);
+      process.stdout.write(`Pruned ${result.pruned.length} fact(s):\n`);
+    }
+
+    for (const fact of result.pruned) {
+      const preview = fact.content.length > 60 ? fact.content.slice(0, 60) + "..." : fact.content;
+      process.stdout.write(`  [${fact.id}] (${fact.reason}) ${preview}\n`);
+    }
     return;
   }
 

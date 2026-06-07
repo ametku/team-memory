@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { openInteractionsDb } from "../interactions-db.js";
+import { openFactsDb } from "../facts-db.js";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../dist/cli.js");
 
@@ -241,5 +243,129 @@ describe("team-memory reject", () => {
     } catch (e: any) {
       expect(e.stderr.toString()).toContain("Fact not found");
     }
+  });
+});
+
+describe("team-memory prune", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-cli-prune-"));
+    mkdirSync(join(dir, "facts"));
+    mkdirSync(join(dir, "interactions"));
+    execFileSync("git", ["init"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "testdev"], { cwd: dir });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("prunes rejected facts and prints output", () => {
+    const addOutput = execFileSync(
+      "node",
+      [CLI_PATH, "add", "bad advice to prune"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice" },
+      },
+    );
+    const factId = addOutput.trim();
+
+    const iDb1 = openInteractionsDb(join(dir, "interactions"), "bob");
+    iDb1.prepare(
+      "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, 0, '2026-06-01T00:00:00Z', -1)"
+    ).run(factId);
+    iDb1.close();
+
+    const iDb2 = openInteractionsDb(join(dir, "interactions"), "carol");
+    iDb2.prepare(
+      "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, 0, '2026-06-02T00:00:00Z', -1)"
+    ).run(factId);
+    iDb2.close();
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "prune"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice", TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+      },
+    );
+    expect(output).toContain(factId);
+    expect(output).toContain("rejected");
+
+    // Verify pruned fact is absent from rebuilt index
+    const queryOutput = execFileSync(
+      "node",
+      [CLI_PATH, "query", "bad advice"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+      },
+    );
+    expect(queryOutput).not.toContain(factId);
+  });
+
+  it("--dry-run shows what would be pruned without deleting", () => {
+    const addOutput = execFileSync(
+      "node",
+      [CLI_PATH, "add", "another bad fact"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice" },
+      },
+    );
+    const factId = addOutput.trim();
+
+    const iDb1 = openInteractionsDb(join(dir, "interactions"), "bob");
+    iDb1.prepare(
+      "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, 0, '2026-06-01T00:00:00Z', -1)"
+    ).run(factId);
+    iDb1.close();
+
+    const iDb2 = openInteractionsDb(join(dir, "interactions"), "carol");
+    iDb2.prepare(
+      "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, 0, '2026-06-02T00:00:00Z', -1)"
+    ).run(factId);
+    iDb2.close();
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "prune", "--dry-run"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice" },
+      },
+    );
+    expect(output).toContain(factId);
+    expect(output).toContain("dry-run");
+
+    const factsDb = openFactsDb(join(dir, "facts"), "alice");
+    const row = factsDb.prepare("SELECT * FROM facts WHERE id = ?").get(factId);
+    factsDb.close();
+    expect(row).toBeDefined();
+  });
+
+  it("prints nothing-to-prune when no facts qualify", () => {
+    execFileSync(
+      "node",
+      [CLI_PATH, "add", "healthy fact"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice" },
+      },
+    );
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "prune"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice" },
+      },
+    );
+    expect(output).toContain("Nothing to prune");
   });
 });
