@@ -251,6 +251,27 @@ describe("merged-index", () => {
     });
   });
 
+  describe("stats return value", () => {
+    test("returns devDbs and factsIndexed counts", () => {
+      const aliceDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(aliceDb, { content: "Alice fact" });
+      aliceDb.close();
+
+      const bobDb = openFactsDb(join(repoDir, "facts"), "bob");
+      insertFact(bobDb, { content: "Bob fact one" });
+      insertFact(bobDb, { content: "Bob fact two" });
+      bobDb.close();
+
+      const stats = rebuildIndex(repoDir, outputPath);
+      expect(stats).toEqual({ devDbs: 2, factsIndexed: 3 });
+    });
+
+    test("returns zero counts when no facts exist", () => {
+      const stats = rebuildIndex(repoDir, outputPath);
+      expect(stats).toEqual({ devDbs: 0, factsIndexed: 0 });
+    });
+  });
+
   describe("trust computation", () => {
     test("computes trust from aggregated interactions across developers", () => {
       const factsDb = openFactsDb(join(repoDir, "facts"), "alice");

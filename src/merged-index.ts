@@ -2,7 +2,12 @@ import Database from "better-sqlite3";
 import { readdirSync } from "fs";
 import { join } from "path";
 
-export function rebuildIndex(repoDir: string, outputPath: string): void {
+export interface RebuildStats {
+  devDbs: number;
+  factsIndexed: number;
+}
+
+export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats {
   const db = new Database(outputPath);
   db.pragma("journal_mode = WAL");
 
@@ -31,6 +36,7 @@ export function rebuildIndex(repoDir: string, outputPath: string): void {
   // Stage facts
   const factsDir = join(repoDir, "facts");
   const factsFiles = readdirSync(factsDir).filter((f) => f.startsWith("facts-") && f.endsWith(".db"));
+  const devDbs = factsFiles.length;
 
   let attachIdx = 0;
   for (const file of factsFiles) {
@@ -95,5 +101,10 @@ export function rebuildIndex(repoDir: string, outputPath: string): void {
 
   db.exec(`DROP TABLE staged_facts`);
   db.exec(`DROP TABLE staged_interactions`);
+
+  const row = db.prepare("SELECT count(*) as cnt FROM facts_view").get() as { cnt: number };
+  const factsIndexed = row.cnt;
+
   db.close();
+  return { devDbs, factsIndexed };
 }
