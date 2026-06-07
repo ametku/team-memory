@@ -8,6 +8,7 @@ import { queryFacts } from "./query.js";
 import { rebuildIndex } from "./merged-index.js";
 import { pruneFacts } from "./prune.js";
 import { syncRepo } from "./sync.js";
+import { installPostMergeHook } from "./hook.js";
 import { resolveRepoDir } from "./repo.js";
 import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
@@ -24,6 +25,7 @@ Commands:
   rebuild-index        Rebuild the local merged index
   prune                Remove stale or rejected facts
   sync                 Pull from remote and rebuild index
+  install-hook         Install post-merge git hook for auto-rebuild
 
 Options:
   --help               Show this help message
@@ -160,6 +162,17 @@ function main(): void {
     for (const fact of result.pruned) {
       const preview = fact.content.length > 60 ? fact.content.slice(0, 60) + "..." : fact.content;
       process.stdout.write(`  [${fact.id}] (${fact.reason}) ${preview}\n`);
+    }
+    return;
+  }
+
+  if (command === "install-hook") {
+    const repoDir = resolveRepoDir();
+    const result = installPostMergeHook({ repoDir });
+    if (result.installed) {
+      process.stdout.write(`Installed post-merge hook at ${result.hookPath}\n`);
+    } else {
+      process.stdout.write(`Skipped: hook already exists at ${result.hookPath}\n`);
     }
     return;
   }

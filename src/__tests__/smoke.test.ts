@@ -370,6 +370,45 @@ describe("team-memory prune", () => {
   });
 });
 
+describe("team-memory install-hook", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-cli-hook-"));
+    execFileSync("git", ["init"], { cwd: dir });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("installs hook and reports path", () => {
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "install-hook"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir },
+      },
+    );
+    expect(output).toContain("Installed post-merge hook");
+    expect(output).toContain("post-merge");
+  });
+
+  it("reports skip when hook already exists", () => {
+    execFileSync("node", [CLI_PATH, "install-hook"], {
+      encoding: "utf-8",
+      env: { ...process.env, TEAM_MEMORY_DIR: dir },
+    });
+
+    const output = execFileSync("node", [CLI_PATH, "install-hook"], {
+      encoding: "utf-8",
+      env: { ...process.env, TEAM_MEMORY_DIR: dir },
+    });
+    expect(output).toContain("Skipped");
+  });
+});
+
 describe("team-memory sync", () => {
   let dir: string;
 
