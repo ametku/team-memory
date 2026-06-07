@@ -295,6 +295,17 @@ describe("team-memory prune", () => {
     );
     expect(output).toContain(factId);
     expect(output).toContain("rejected");
+
+    // Verify pruned fact is absent from rebuilt index
+    const queryOutput = execFileSync(
+      "node",
+      [CLI_PATH, "query", "bad advice"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+      },
+    );
+    expect(queryOutput).not.toContain(factId);
   });
 
   it("--dry-run shows what would be pruned without deleting", () => {

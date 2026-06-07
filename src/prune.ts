@@ -3,7 +3,6 @@ import { readdirSync } from "fs";
 import { execFileSync } from "child_process";
 import Database from "better-sqlite3";
 import { openFactsDb } from "./facts-db.js";
-import { openInteractionsDb } from "./interactions-db.js";
 
 export interface PruneInput {
   repoDir: string;
@@ -125,8 +124,7 @@ export function pruneFacts(input: PruneInput): PruneResult {
   execFileSync("git", ["add", dbFile], { cwd: input.repoDir });
   const status = execFileSync("git", ["status", "--porcelain"], { cwd: input.repoDir, encoding: "utf-8" });
   if (status.trim()) {
-    const ids = pruned.map(f => f.id).join(", ");
-    execFileSync("git", ["commit", "-m", `feat: prune facts [${ids}]`], { cwd: input.repoDir });
+    execFileSync("git", ["commit", "-m", `chore: prune ${pruned.length} facts`], { cwd: input.repoDir });
   }
 
   return { pruned };
