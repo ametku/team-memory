@@ -59,6 +59,34 @@ describe("syncRepo", () => {
     expect(result.rebuildStats.factsIndexed).toBe(1);
   });
 
+  test("pushes local commits when push=true", () => {
+    const db = openFactsDb(join(local, "facts"), "testdev");
+    insertFact(db, { content: "local fact to push" });
+    db.close();
+    execFileSync("git", ["add", "."], { cwd: local });
+    execFileSync("git", ["commit", "-m", "feat: local fact"], { cwd: local });
+
+    const indexPath = join(local, "merged_index.db");
+    const result = syncRepo({ repoDir: local, indexPath, push: true });
+
+    expect(result.pushed).toBe(true);
+    expect(result.pulled).toBe(true);
+
+    const verify = mkdtempSync(join(tmpdir(), "tm-sync-verify-"));
+    rmSync(verify, { recursive: true });
+    execFileSync("git", ["clone", remote, verify]);
+    const log = execFileSync("git", ["log", "--oneline"], { cwd: verify, encoding: "utf-8" });
+    expect(log).toContain("local fact");
+    rmSync(verify, { recursive: true });
+  });
+
+  test("push=true with no remote throws", () => {
+    execFileSync("git", ["remote", "set-url", "origin", "/nonexistent/path"], { cwd: local });
+
+    const indexPath = join(local, "merged_index.db");
+    expect(() => syncRepo({ repoDir: local, indexPath, push: true })).toThrow();
+  });
+
   test("continues with rebuild when pull fails (offline-graceful)", () => {
     const db = openFactsDb(join(local, "facts"), "testdev");
     insertFact(db, { content: "local fact before sync" });

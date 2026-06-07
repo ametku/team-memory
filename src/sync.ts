@@ -15,11 +15,17 @@ export interface SyncResult {
 }
 
 export function syncRepo(input: SyncInput): SyncResult {
+  let pushed: boolean | undefined;
+  if (input.push) {
+    execFileSync("git", ["push", "origin", "HEAD"], { cwd: input.repoDir });
+    pushed = true;
+  }
+
   let pulled = true;
   let pullWarning: string | undefined;
 
   try {
-    execFileSync("git", ["pull"], { cwd: input.repoDir });
+    execFileSync("git", ["pull", "origin"], { cwd: input.repoDir });
   } catch (e: any) {
     pulled = false;
     pullWarning = e.message ?? "git pull failed";
@@ -27,5 +33,5 @@ export function syncRepo(input: SyncInput): SyncResult {
 
   const rebuildStats = rebuildIndex(input.repoDir, input.indexPath);
 
-  return { pulled, pullWarning, rebuildStats };
+  return { pulled, pullWarning, pushed, rebuildStats };
 }
