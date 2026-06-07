@@ -3,6 +3,7 @@
 import { dirname } from "path";
 import { mkdirSync } from "fs";
 import { addFact } from "./add.js";
+import { rejectFact } from "./reject.js";
 import { queryFacts } from "./query.js";
 import { rebuildIndex } from "./merged-index.js";
 import { resolveRepoDir } from "./repo.js";
@@ -70,6 +71,25 @@ function main(): void {
     const developer = getDeveloperName();
     const fact = addFact({ content, repoDir, developer, project, tags });
     process.stdout.write(`${fact.id}\n`);
+    return;
+  }
+
+  if (command === "reject") {
+    const factId = commandArgs[0];
+    if (!factId) {
+      process.stderr.write("Error: <fact_id> is required\n");
+      process.exit(1);
+    }
+    const repoDir = resolveRepoDir();
+    const developer = getDeveloperName();
+    try {
+      const result = rejectFact({ factId, repoDir, developer });
+      const preview = result.content.length > 60 ? result.content.slice(0, 60) + "..." : result.content;
+      process.stdout.write(`Rejected fact ${factId}: ${preview}\n`);
+    } catch (e: any) {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
+    }
     return;
   }
 
