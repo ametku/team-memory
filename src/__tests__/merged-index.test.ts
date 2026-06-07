@@ -4,6 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import Database from "better-sqlite3";
 import { openFactsDb, insertFact } from "../facts-db.js";
+import { openInteractionsDb } from "../interactions-db.js";
 import { rebuildIndex } from "../merged-index.js";
 
 describe("merged-index", () => {
@@ -78,6 +79,74 @@ describe("merged-index", () => {
       expect(rows.every((r: any) => r.trust === 1.0)).toBe(true);
       expect(rows.find((r: any) => r.content === "Use viper for config").project).toBe("backend");
       expect(rows.find((r: any) => r.content === "Retry flaky deploys once").project).toBe("");
+      db.close();
+    });
+  });
+
+  describe("trust computation", () => {
+    test("computes trust from aggregated interactions across developers", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "Surfaced fact" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 5, "2026-01-15T00:00:00.000Z", 0);
+      aliceInt.close();
+
+      const bobInt = openInteractionsDb(join(repoDir, "interactions"), "bob");
+      bobInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 3, "2026-02-01T00:00:00.000Z", 0);
+      bobInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(fact.id) as any;
+      // total_surfaces = 8, net_explicit = 0
+      // trust = (1 + ln(1 + 8)) * max(0.1, 1 + 0.5 * 0) = (1 + ln(9)) * 1.0
+      const expected = (1 + Math.log(1 + 8)) * Math.max(0.1, 1 + 0.5 * 0);
+      expect(row.trust).toBeCloseTo(expected, 5);
+      db.close();
+    });
+
+    test("applies explicit_score penalty to trust", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      const fact = insertFact(factsDb, { content: "Penalized fact" });
+      factsDb.close();
+
+      const aliceInt = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      aliceInt.prepare(
+        "INSERT INTO interactions (fact_id, surface_count, last_surfaced_at, explicit_score) VALUES (?, ?, ?, ?)"
+      ).run(fact.id, 4, "2026-01-15T00:00:00.000Z", -1);
+      aliceInt.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT trust FROM facts_view WHERE id = ?").get(fact.id) as any;
+      // total_surfaces = 4, net_explicit = -1
+      // trust = (1 + ln(5)) * max(0.1, 1 + 0.5 * (-1)) = (1 + ln(5)) * 0.5
+      const expected = (1 + Math.log(1 + 4)) * Math.max(0.1, 1 + 0.5 * -1);
+      expect(row.trust).toBeCloseTo(expected, 5);
+      db.close();
+    });
+
+    test("facts with no interactions default to trust 1.0", () => {
+      const factsDb = openFactsDb(join(repoDir, "facts"), "alice");
+      insertFact(factsDb, { content: "No interactions" });
+      factsDb.close();
+
+      const intDb = openInteractionsDb(join(repoDir, "interactions"), "alice");
+      intDb.close();
+
+      rebuildIndex(repoDir, outputPath);
+
+      const db = new Database(outputPath);
+      const row = db.prepare("SELECT trust FROM facts_view WHERE content = ?").get("No interactions") as any;
+      expect(row.trust).toBe(1.0);
       db.close();
     });
   });
