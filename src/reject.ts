@@ -1,6 +1,6 @@
 import { join } from "path";
 import { readdirSync } from "fs";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import Database from "better-sqlite3";
 import { openInteractionsDb } from "./interactions-db.js";
 
@@ -26,8 +26,11 @@ export function rejectFact(input: RejectFactInput): { content: string } {
   db.close();
 
   const dbFile = join("interactions", `interactions-${input.developer}.db`);
-  execSync(`git add "${dbFile}"`, { cwd: input.repoDir });
-  execSync(`git commit -m "feat: reject fact ${input.factId}"`, { cwd: input.repoDir });
+  execFileSync("git", ["add", dbFile], { cwd: input.repoDir });
+  const status = execFileSync("git", ["status", "--porcelain"], { cwd: input.repoDir, encoding: "utf-8" });
+  if (status.trim()) {
+    execFileSync("git", ["commit", "-m", `feat: reject fact ${input.factId}`], { cwd: input.repoDir });
+  }
 
   return { content };
 }
