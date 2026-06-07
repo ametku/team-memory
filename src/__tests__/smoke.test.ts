@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { resolve } from "node:path";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -458,5 +458,62 @@ describe("team-memory sync", () => {
     );
     expect(output).toContain("Warning");
     expect(output).toContain("facts indexed");
+  });
+});
+
+describe("team-memory preprompt-hook", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-preprompt-cli-"));
+    mkdirSync(join(dir, "facts"));
+    mkdirSync(join(dir, "interactions"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("outputs continue:true JSON with no index", () => {
+    const input = JSON.stringify({ prompt: "test", hook_event_name: "UserPromptSubmit" });
+    const output = execFileSync("node", [CLI_PATH, "preprompt-hook"], {
+      encoding: "utf-8",
+      input,
+      env: {
+        ...process.env,
+        TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db"),
+        TEAM_MEMORY_DIR: dir,
+        TEAM_MEMORY_DEVELOPER: "alice",
+      },
+    });
+    const parsed = JSON.parse(output);
+    expect(parsed.continue).toBe(true);
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+  });
+});
+
+describe("team-memory session-end", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tm-session-end-"));
+    execSync("git init", { cwd: dir });
+    execSync("git config user.name 'Test'", { cwd: dir });
+    execSync("git config user.email 'test@test.com'", { cwd: dir });
+    execSync("git commit --allow-empty -m 'init'", { cwd: dir });
+    mkdirSync(join(dir, "interactions"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true });
+  });
+
+  it("exits 0 with no interactions db", () => {
+    expect(() =>
+      execFileSync("node", [CLI_PATH, "session-end"], {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "alice" },
+      })
+    ).not.toThrow();
   });
 });
