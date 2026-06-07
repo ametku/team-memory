@@ -10,6 +10,7 @@ export interface PrepromptInput {
   indexPath: string;
   repoDir: string;
   developer: string;
+  project?: string;
 }
 
 export interface PrepromptOutput {
@@ -21,13 +22,13 @@ export interface PrepromptOutput {
 }
 
 export function runPrepromptHook(input: PrepromptInput): PrepromptOutput {
-  const { prompt, indexPath, repoDir, developer } = input;
+  const { prompt, indexPath, repoDir, developer, project } = input;
 
   if (!existsSync(indexPath)) {
     return { continue: true };
   }
 
-  const results = queryFacts({ indexPath, query: prompt, limit: 5 });
+  const results = queryFacts({ indexPath, query: prompt, limit: 5, project });
 
   if (results.length === 0) {
     return { continue: true };

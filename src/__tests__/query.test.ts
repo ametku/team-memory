@@ -164,6 +164,51 @@ describe("queryFacts", () => {
     });
   });
 
+  describe("project scoping", () => {
+    test("project filter returns facts with matching project plus team-wide facts", () => {
+      seedAndBuild([
+        { content: "payments-specific fact", project: "payments-service" },
+        { content: "frontend-specific fact", project: "web-app" },
+        { content: "team-wide fact" },
+      ]);
+
+      const results = queryFacts({ indexPath, query: "fact", limit: 10, project: "payments-service" });
+
+      const contents = results.map((r) => r.content);
+      expect(contents).toContain("payments-specific fact");
+      expect(contents).toContain("team-wide fact");
+      expect(contents).not.toContain("frontend-specific fact");
+    });
+
+    test("no project filter returns all facts regardless of project", () => {
+      seedAndBuild([
+        { content: "payments-specific fact", project: "payments-service" },
+        { content: "frontend-specific fact", project: "web-app" },
+        { content: "team-wide fact" },
+      ]);
+
+      const results = queryFacts({ indexPath, query: "fact", limit: 10 });
+
+      expect(results).toHaveLength(3);
+    });
+
+    test("limit is respected after post-filter when many facts match other projects", () => {
+      const facts = [
+        ...Array.from({ length: 20 }, (_, i) => ({ content: `unrelated fact ${i}`, project: "web-app" })),
+        ...Array.from({ length: 3 }, (_, i) => ({ content: `relevant fact ${i}`, project: "payments-service" })),
+      ];
+      seedAndBuild(facts);
+
+      const results = queryFacts({ indexPath, query: "fact", limit: 5, project: "payments-service" });
+
+      for (const r of results) {
+        expect(r.project === "payments-service" || r.project === "").toBe(true);
+      }
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.length).toBeLessThanOrEqual(5);
+    });
+  });
+
   describe("missing database", () => {
     test("throws descriptive error when index file does not exist", () => {
       const missingPath = join(repoDir, "nonexistent.db");

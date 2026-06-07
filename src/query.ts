@@ -5,6 +5,7 @@ export interface QueryFactsInput {
   indexPath: string;
   query: string;
   limit?: number;
+  project?: string;
 }
 
 export interface QueryResult {
@@ -20,7 +21,7 @@ function rewriteQuery(query: string): string {
 }
 
 export function queryFacts(input: QueryFactsInput): QueryResult[] {
-  const { indexPath, query, limit = 5 } = input;
+  const { indexPath, query, limit = 5, project } = input;
 
   if (!existsSync(indexPath)) {
     throw new Error("merged_index.db not found. Run `team-memory rebuild-index` first.");
@@ -30,15 +31,24 @@ export function queryFacts(input: QueryFactsInput): QueryResult[] {
   const ftsQuery = rewriteQuery(query);
 
   try {
-    const rows = db.prepare(`
+    if (project) {
+      return db.prepare(`
+        SELECT id, content, project, tags, trust
+        FROM facts_view
+        WHERE facts_view MATCH ?
+          AND (project = ? OR project = '')
+        ORDER BY bm25(facts_view) * trust
+        LIMIT ?
+      `).all(ftsQuery, project, limit) as QueryResult[];
+    }
+
+    return db.prepare(`
       SELECT id, content, project, tags, trust
       FROM facts_view
       WHERE facts_view MATCH ?
       ORDER BY bm25(facts_view) * trust
       LIMIT ?
     `).all(ftsQuery, limit) as QueryResult[];
-
-    return rows;
   } finally {
     db.close();
   }

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import { mkdirSync } from "fs";
+import { execFileSync } from "child_process";
 import { addFact } from "./add.js";
 import { rejectFact } from "./reject.js";
 import { queryFacts } from "./query.js";
@@ -24,7 +25,7 @@ Usage:
 
 Commands:
   add <content>        Add a new fact
-  query <text>         Search facts by relevance
+  query <text>         Search facts by relevance (use --project <name> to scope)
   reject <fact_id>     Mark a fact as incorrect
   rebuild-index        Rebuild the local merged index
   prune                Remove stale or rejected facts
@@ -41,6 +42,15 @@ Options:
   --help               Show this help message
   --version            Show version
 `;
+
+function detectProject(): string | undefined {
+  try {
+    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim();
+    return root ? basename(root) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function parseAddArgs(args: string[]): { content: string; project?: string; tags?: string[] } {
   const content = args[0];
@@ -120,10 +130,16 @@ function main(): void {
       limit = parseInt(commandArgs[limitIdx + 1], 10);
     }
 
+    let project: string | undefined;
+    const projectIdx = commandArgs.indexOf("--project");
+    if (projectIdx !== -1 && commandArgs[projectIdx + 1]) {
+      project = commandArgs[projectIdx + 1];
+    }
+
     const indexPath = resolveIndexPath();
 
     try {
-      const results = queryFacts({ indexPath, query: queryText, limit });
+      const results = queryFacts({ indexPath, query: queryText, limit, project });
       for (const r of results) {
         process.stdout.write(`[${r.id}] (trust: ${r.trust.toFixed(2)}) ${r.content}`);
         if (r.project) process.stdout.write(` [project: ${r.project}]`);
@@ -266,7 +282,8 @@ function main(): void {
       const developer = (() => {
         try { return getDeveloperName(); } catch { return "unknown"; }
       })();
-      const result = runPrepromptHook({ prompt, indexPath, repoDir, developer });
+      const project = detectProject();
+      const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project });
       process.stdout.write(JSON.stringify(result));
     });
     return;

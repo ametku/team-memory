@@ -131,6 +131,38 @@ describe("team-memory query", () => {
     expect(output).toContain("always use TLS in production");
   });
 
+  it("scopes results with --project flag", () => {
+    for (const [content, project] of [
+      ["payments fact alpha", "payments-service"],
+      ["frontend fact beta", "web-app"],
+      ["team-wide fact gamma", undefined],
+    ] as const) {
+      const args = [CLI_PATH, "add", content];
+      if (project) args.push("--project", project);
+      execFileSync("node", args, {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
+      });
+    }
+
+    execFileSync("node", [CLI_PATH, "rebuild-index"], {
+      encoding: "utf-8",
+      env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+    });
+
+    const output = execFileSync(
+      "node",
+      [CLI_PATH, "query", "fact", "--project", "payments-service"],
+      {
+        encoding: "utf-8",
+        env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_INDEX_PATH: join(dir, "merged_index.db") },
+      },
+    );
+    expect(output).toContain("payments fact alpha");
+    expect(output).toContain("team-wide fact gamma");
+    expect(output).not.toContain("frontend fact beta");
+  });
+
   it("exits 1 when no query text provided", () => {
     expect(() =>
       execFileSync("node", [CLI_PATH, "query"], {

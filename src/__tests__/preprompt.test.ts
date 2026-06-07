@@ -22,7 +22,7 @@ describe("runPrepromptHook", () => {
     rmSync(repoDir, { recursive: true });
   });
 
-  function seedAndBuild(facts: { content: string }[]) {
+  function seedAndBuild(facts: { content: string; project?: string }[]) {
     const db = openFactsDb(join(repoDir, "facts"), "alice");
     for (const f of facts) insertFact(db, f);
     db.close();
@@ -60,6 +60,40 @@ describe("runPrepromptHook", () => {
 
     expect(result.continue).toBe(true);
     expect(result.hookSpecificOutput).toBeUndefined();
+  });
+
+  test("project filter surfaces only matching project + team-wide facts", () => {
+    seedAndBuild([
+      { content: "payments fact about retries", project: "payments-service" },
+      { content: "frontend fact about retries", project: "web-app" },
+      { content: "team-wide fact about retries" },
+    ]);
+
+    const result = runPrepromptHook({
+      prompt: "retries",
+      indexPath,
+      repoDir,
+      developer: "alice",
+      project: "payments-service",
+    });
+
+    const ctx = result.hookSpecificOutput?.additionalContext ?? "";
+    expect(ctx).toContain("payments fact");
+    expect(ctx).toContain("team-wide fact");
+    expect(ctx).not.toContain("frontend fact");
+  });
+
+  test("no project filter surfaces all matching facts", () => {
+    seedAndBuild([
+      { content: "payments fact about retries", project: "payments-service" },
+      { content: "frontend fact about retries", project: "web-app" },
+    ]);
+
+    const result = runPrepromptHook({ prompt: "retries", indexPath, repoDir, developer: "alice" });
+
+    const ctx = result.hookSpecificOutput?.additionalContext ?? "";
+    expect(ctx).toContain("payments fact");
+    expect(ctx).toContain("frontend fact");
   });
 
   test("logs surface counts for returned facts", () => {
