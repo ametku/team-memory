@@ -165,8 +165,8 @@ async function callNerdCompletion(baseUrl: string, apiKey: string, text: string)
     body: JSON.stringify({
       model: "claude-4-5-sonnet",
       max_tokens: 1024,
+      system: SYSTEM_PROMPT,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: text },
       ],
     }),
@@ -181,7 +181,7 @@ async function callNerdCompletion(baseUrl: string, apiKey: string, text: string)
   }
 
   const body = await res.json();
-  const raw = body.choices[0].message.content;
+  const raw = body.content[0].text;
   const parsed = JSON.parse(raw);
 
   if (!Array.isArray(parsed.facts)) {
