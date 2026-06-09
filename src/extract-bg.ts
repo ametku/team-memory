@@ -164,6 +164,7 @@ async function callNerdCompletion(baseUrl: string, apiKey: string, text: string)
     },
     body: JSON.stringify({
       model: "claude-4-5-sonnet",
+      max_tokens: 1024,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
