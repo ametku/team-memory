@@ -12,27 +12,47 @@
 
 ---
 
+## Modes
+
+| Mode | Flag | Behavior |
+|------|------|----------|
+| Normal | _(none)_ | Processes all unprocessed sessions automatically. No prompts. |
+| Dry-run | `--dry-run` | Processes **one session only**. Prompts for confirmation at each step. Nothing is saved or synced. State file is not modified. |
+
+---
+
 ## Architecture
 
 ```
-team-memory extract-bg
+team-memory extract-bg [--dry-run]
       │
       ├── 1. Load state file: resolveRepoDir() + "/processed-sessions.json"
       │
       ├── 2. Scan ~/.claude/projects/ for *.jsonl files
+      │       [dry-run] print list of all eligible files, pick the most recent one only
       │
-      ├── 3. For each file not in state["processed"] and not maxed in state["failed"]:
-      │       a. Parse JSONL → extract conversation text (user + assistant turns only)
-      │       b. POST to NerdCompletion /v1/chat/completions
-      │              model: claude-4-5-sonnet
-      │              response_format: { type: "json_object" }
-      │              messages: [system: extraction prompt, user: conversation text]
+      ├── 3. For each file (dry-run: just the one):
+      │       a. [dry-run] confirm: "Parse this session? <path>" → y/n
+      │          Parse JSONL → extract conversation text (user + assistant turns only)
+      │          Log: turn count, total characters, truncated (yes/no)
+      │
+      │       b. [dry-run] confirm: "Send to NerdCompletion? (model: claude-4-5-sonnet, ~N chars)" → y/n
+      │          POST to NerdCompletion /v1/chat/completions
+      │          Log: HTTP status, response time, raw JSON response
+      │
       │       c. Parse JSON → { facts: [{content, tags}] }
-      │       d. Derive --project from JSONL directory path
-      │       e. For each fact: execSync("team-memory add ...")
-      │       f. Update state file (mark processed or increment failure count)
+      │          Log: number of facts extracted
       │
-      └── 4. execSync("team-memory sync --push")
+      │       d. For each fact:
+      │          [dry-run] confirm: "Save this fact? <content> | tags: <tags>" → y/n
+      │          [normal]  execSync("team-memory add ...")
+      │          [dry-run] print: "[dry-run] would run: team-memory add ..."
+      │
+      │       e. [normal] Update state file (mark processed or increment failure count)
+      │          [dry-run] skip state update
+      │
+      └── 4. [normal]   execSync("team-memory sync --push")
+             [dry-run]  print: "[dry-run] would run: team-memory sync --push"
 ```
 
 ---
@@ -44,7 +64,9 @@ team-memory extract-bg
 | `src/extract-bg.ts` | Main implementation |
 | `src/cli.ts` | Register new `extract-bg` subcommand |
 
-No new dependencies required beyond Node.js built-ins (`fs`, `path`, `child_process`).
+No new dependencies required beyond Node.js built-ins (`fs`, `path`, `child_process`, `readline`).
+
+`readline` is used for interactive confirmation prompts in dry-run mode.
 
 ---
 
@@ -107,6 +129,60 @@ const encoded = path.basename(path.dirname(jsonlPath));
 const project = encoded.split("-").at(-1);
 // "team-memory"
 ```
+
+---
+
+## Logging
+
+Every step emits a log line regardless of mode. Format: `[extract-bg] <message>`.
+
+| Event | Log message |
+|-------|-------------|
+| Session discovered | `[extract-bg] found N unprocessed sessions` |
+| Parsing a file | `[extract-bg] parsing <uuid>.jsonl (project: <project>)` |
+| Parse result | `[extract-bg] extracted <N> turns, <X> chars (truncated: yes/no)` |
+| API call start | `[extract-bg] calling NerdCompletion (model: claude-4-5-sonnet, <X> chars)` |
+| API call result | `[extract-bg] response: HTTP <status> in <Xms>` |
+| Facts found | `[extract-bg] extracted <N> facts` |
+| Saving a fact | `[extract-bg] saving fact: "<content>"` |
+| Fact saved | `[extract-bg] saved fact <id>` |
+| Session done | `[extract-bg] marked <uuid>.jsonl as processed` |
+| Failure | `[extract-bg] WARNING: <uuid>.jsonl failed (attempt <N>/3): <error>` |
+| Sync | `[extract-bg] syncing...` |
+| Done | `[extract-bg] done. <N> facts saved from <M> sessions.` |
+
+---
+
+## Dry-Run Confirmation Prompts
+
+Implemented using Node.js `readline` (built-in, no extra dependency). Each prompt is `y/n` — any input other than `y` or `Y` is treated as `n`.
+
+**Prompt 1 — before parsing:**
+```
+[dry-run] Session: ~/.claude/projects/-Users-.../4d7b7062.jsonl
+[dry-run] Parse this session and extract conversation text? (y/n):
+```
+If `n`: print `[dry-run] skipped.` and exit.
+
+**Prompt 2 — before API call:**
+```
+[dry-run] Extracted 42 turns, 8,320 chars.
+[dry-run] Send to NerdCompletion (claude-4-5-sonnet)? (y/n):
+```
+If `n`: print `[dry-run] skipped API call.` and exit.
+
+**Prompt 3 — before each fact (repeated per fact):**
+```
+[dry-run] Fact 1/2:
+  content: "Use 'docker compose' (no hyphen) — Rancher Desktop does not support docker-compose"
+  tags:    ["category:gotcha", "docker", "rancher", "cli"]
+  project: team-memory
+[dry-run] Save this fact? (y/n):
+```
+If `n`: print `[dry-run] skipped fact.` and move to next.
+If `y`: print `[dry-run] would run: team-memory add "..." --project team-memory --tags '[...]'`
+
+After all facts: print `[dry-run] done. No changes written.`
 
 ---
 
@@ -192,7 +268,7 @@ For each fact, shell out to the existing CLI:
 
 ```typescript
 execSync(
-  `team-memory add ${JSON.stringify(fact.content)} --project ${project} --tags ${JSON.stringify(JSON.stringify(fact.tags))}`,
+  `team-memory add ${JSON.stringify(fact.content)} --project ${project} --tags '${JSON.stringify(fact.tags)}'`,
   { stdio: "inherit" }
 );
 ```
@@ -221,17 +297,19 @@ This reuses all existing validation, tag normalization, SQLite insert, and git-c
 
 On first run, **backfill** — all existing JSONL files not in `processed` or maxed in `failed` are eligible.
 
+**Dry-run mode does not read or write this file.**
+
 ---
 
 ## Error Handling
 
 | Failure | Behavior |
 |---------|----------|
-| `NERD_COMPLETION_API_KEY` not set | Exit immediately with message: `Error: NERD_COMPLETION_API_KEY is not set.` |
-| HTTP error from NerdCompletion | Log warning with status code. Increment `failed` count. Leave unprocessed. Continue to next file. |
+| `NERD_COMPLETION_API_KEY` not set | Exit immediately: `Error: NERD_COMPLETION_API_KEY is not set.` |
+| HTTP error from NerdCompletion | Log warning with status + body. Increment `failed` count. Continue to next file. |
 | Response JSON malformed / wrong shape | Same as HTTP error. |
 | `team-memory add` subprocess fails | Log warning. Mark session as processed anyway (facts already partially saved). |
-| No JSONL files found | Print `No sessions found.` and exit 0. |
+| No JSONL files found | Print `[extract-bg] no sessions found.` and exit 0. |
 
 ---
 
@@ -243,7 +321,8 @@ Add to `src/cli.ts`:
 program
   .command("extract-bg")
   .description("Extract facts from Claude Code session files using NerdCompletion")
-  .action(runExtractBg);
+  .option("--dry-run", "process one session interactively without saving anything")
+  .action((opts) => runExtractBg({ dryRun: !!opts.dryRun }));
 ```
 
 ---
@@ -251,7 +330,7 @@ program
 ## Full Execution Flow (pseudocode)
 
 ```typescript
-async function runExtractBg() {
+async function runExtractBg({ dryRun }: { dryRun: boolean }) {
   const apiKey = process.env.NERD_COMPLETION_API_KEY;
   if (!apiKey) { console.error("Error: NERD_COMPLETION_API_KEY is not set."); process.exit(1); }
 
@@ -259,33 +338,63 @@ async function runExtractBg() {
     ?? "https://nerd-completion.staging-service.nr-ops.net";
 
   const stateFile = join(resolveRepoDir(), "processed-sessions.json");
-  const state = loadState(stateFile); // { processed: [], failed: {} }
+  const state = dryRun ? null : loadState(stateFile);
 
   const sessionFiles = glob("~/.claude/projects/**/*.jsonl");
-  const toProcess = sessionFiles.filter(f =>
-    !state.processed.includes(basename(f)) &&
-    (state.failed[basename(f)] ?? 0) < 3
-  );
+  let toProcess = dryRun
+    ? [sessionFiles.sort(byMtime).at(-1)]              // most recent only
+    : sessionFiles.filter(f =>
+        !state.processed.includes(basename(f)) &&
+        (state.failed[basename(f)] ?? 0) < 3
+      );
+
+  log(`found ${toProcess.length} session(s) to process`);
 
   for (const file of toProcess) {
-    const text = extractConversationText(file);    // parse JSONL → [USER]/[ASSISTANT] text
-    const project = deriveProject(file);           // last segment of encoded dir name
+    const project = deriveProject(file);
 
+    // Step 1: parse
+    if (dryRun && !(await confirm(`Parse ${file}?`))) { log("skipped."); return; }
+    const text = extractConversationText(file);
+    log(`extracted turns, ${text.length} chars`);
+
+    // Step 2: API call
+    if (dryRun && !(await confirm(`Send to NerdCompletion (${text.length} chars)?`))) { log("skipped API call."); return; }
+    let facts: Fact[];
     try {
-      const facts = await callNerdCompletion(baseUrl, apiKey, text);
-      for (const fact of facts) {
-        execSync(`team-memory add ${JSON.stringify(fact.content)} --project ${project} --tags '${JSON.stringify(fact.tags)}'`);
-      }
-      state.processed.push(basename(file));
+      facts = await callNerdCompletion(baseUrl, apiKey, text);
+      log(`extracted ${facts.length} facts`);
     } catch (err) {
-      console.warn(`Warning: failed to process ${basename(file)}: ${err.message}`);
-      state.failed[basename(file)] = (state.failed[basename(file)] ?? 0) + 1;
+      log(`WARNING: API call failed: ${err.message}`);
+      if (!dryRun) incrementFailure(state, basename(file));
+      if (!dryRun) saveState(stateFile, state);
+      continue;
     }
 
-    saveState(stateFile, state);
+    // Step 3: save each fact
+    for (const [i, fact] of facts.entries()) {
+      if (dryRun) {
+        printFact(i + 1, facts.length, fact, project);
+        if (!(await confirm("Save this fact?"))) { log("skipped fact."); continue; }
+        log(`would run: team-memory add "${fact.content}" --project ${project} --tags '${JSON.stringify(fact.tags)}'`);
+      } else {
+        log(`saving fact: "${fact.content}"`);
+        execSync(`team-memory add ${JSON.stringify(fact.content)} --project ${project} --tags '${JSON.stringify(fact.tags)}'`);
+      }
+    }
+
+    if (!dryRun) {
+      state.processed.push(basename(file));
+      saveState(stateFile, state);
+    }
   }
 
-  execSync("team-memory sync --push", { stdio: "inherit" });
+  if (dryRun) {
+    log("done. No changes written.");
+  } else {
+    execSync("team-memory sync --push", { stdio: "inherit" });
+    log(`done. processed ${toProcess.length} session(s).`);
+  }
 }
 ```
 
