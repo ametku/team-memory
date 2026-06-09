@@ -220,6 +220,8 @@ function main(): void {
       const result = initRepo({ org, repo, dir });
       process.stdout.write(`Initialized ${org}/${repo} → ${result.repoDir}\n`);
       process.stdout.write(`export TEAM_MEMORY_DIR=${result.repoDir}\n`);
+      process.stdout.write(`\nTo backfill facts from past Claude Code sessions, run:\n`);
+      process.stdout.write(`  NERD_COMPLETION_API_KEY=<your-key> team-memory extract-bg\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
       process.exit(1);
@@ -238,6 +240,8 @@ function main(): void {
     try {
       const result = joinRepo({ repoUrl: url, dir });
       process.stdout.write(`Joined ${url} → ${result.repoDir}\n`);
+      process.stdout.write(`\nTo backfill facts from past Claude Code sessions, run:\n`);
+      process.stdout.write(`  NERD_COMPLETION_API_KEY=<your-key> team-memory extract-bg\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
       process.exit(1);
