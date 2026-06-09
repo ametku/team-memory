@@ -251,10 +251,12 @@ export async function runExtractBg({ dryRun }: { dryRun: boolean }): Promise<voi
     allFiles.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
     toProcess = [allFiles[0]];
   } else {
-    toProcess = allFiles.filter(f => {
+    const eligible = allFiles.filter(f => {
       const name = basename(f);
       return !state!.processed.includes(name) && (state!.failed[name] ?? 0) < 3;
     });
+    eligible.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+    toProcess = eligible.slice(0, 50);
   }
 
   if (toProcess.length === 0) {
