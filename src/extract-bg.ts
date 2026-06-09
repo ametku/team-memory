@@ -181,7 +181,9 @@ async function callNerdCompletion(baseUrl: string, apiKey: string, text: string)
   }
 
   const body = await res.json();
-  const raw = body.content[0].text;
+  const rawText = body.content[0].text;
+  // Strip markdown code fences if present
+  const raw = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
   const parsed = JSON.parse(raw);
 
   if (!Array.isArray(parsed.facts)) {
@@ -189,6 +191,39 @@ async function callNerdCompletion(baseUrl: string, apiKey: string, text: string)
   }
 
   return parsed.facts as Fact[];
+}
+
+interface Confirm {
+  (question: string): Promise<boolean>;
+  close(): void;
+}
+
+async function buildConfirmPrompt(): Promise<Confirm> {
+  if (process.stdin.isTTY) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const fn = (question: string) =>
+      new Promise<boolean>(resolve => {
+        rl.question(question, answer => resolve(answer === "y" || answer === "Y"));
+      });
+    fn.close = () => rl.close();
+    return fn;
+  }
+  // Non-TTY: buffer all lines upfront
+  const lines = await new Promise<string[]>(resolve => {
+    let buf = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk: string) => { buf += chunk; });
+    process.stdin.on("end", () => resolve(buf.split("\n")));
+    process.stdin.resume();
+  });
+  const fn = (question: string) => {
+    process.stdout.write(question);
+    const answer = lines.shift()?.trim() ?? "n";
+    process.stdout.write(answer + "\n");
+    return Promise.resolve(answer === "y" || answer === "Y");
+  };
+  fn.close = () => {};
+  return fn;
 }
 
 export async function runExtractBg({ dryRun }: { dryRun: boolean }): Promise<void> {
@@ -229,18 +264,7 @@ export async function runExtractBg({ dryRun }: { dryRun: boolean }): Promise<voi
 
   log(`found ${toProcess.length} session(s) to process`);
 
-  let rl: readline.Interface | null = null;
-
-  async function confirmPrompt(question: string): Promise<boolean> {
-    if (!rl) {
-      rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    }
-    return new Promise(resolve => {
-      rl!.question(question, answer => {
-        resolve(answer === "y" || answer === "Y");
-      });
-    });
-  }
+  const confirmPrompt = await buildConfirmPrompt();
 
   let totalFacts = 0;
 
@@ -328,7 +352,7 @@ export async function runExtractBg({ dryRun }: { dryRun: boolean }): Promise<voi
     }
   }
 
-  if (rl) (rl as readline.Interface).close();
+  confirmPrompt.close();
 
   if (dryRun) {
     process.stdout.write("[dry-run] done. No changes written.\n");
