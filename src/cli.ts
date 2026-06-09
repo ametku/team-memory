@@ -17,6 +17,7 @@ import { resolveIndexPath } from "./index-path.js";
 import { getDeveloperName } from "./developer.js";
 import { runPrepromptHook } from "./preprompt.js";
 import { commitInteractions } from "./surface-logging.js";
+import { runExtractBg } from "./extract-bg.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
 
@@ -33,6 +34,7 @@ Commands:
   install-hook         Install post-merge git hook for auto-rebuild
   preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
   session-end          Commit accumulated surface interactions to git
+  extract-bg           Extract facts from Claude Code session files using NerdCompletion
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -286,6 +288,15 @@ function main(): void {
       const project = detectProject();
       const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project });
       process.stdout.write(JSON.stringify(result));
+    });
+    return;
+  }
+
+  if (command === "extract-bg") {
+    const dryRun = commandArgs.includes("--dry-run");
+    runExtractBg({ dryRun }).catch((e: any) => {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
     });
     return;
   }
