@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { readdirSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { normalizeTags } from "./tags.js";
 
@@ -36,7 +36,9 @@ export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats 
 
   // Stage facts
   const factsDir = join(repoDir, "facts");
-  const factsFiles = readdirSync(factsDir).filter((f) => f.startsWith("facts-") && f.endsWith(".db"));
+  const factsFiles = existsSync(factsDir)
+    ? readdirSync(factsDir).filter((f) => f.startsWith("facts-") && f.endsWith(".db"))
+    : [];
   const devDbs = factsFiles.length;
 
   let attachIdx = 0;
@@ -53,7 +55,9 @@ export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats 
 
   // Stage interactions
   const intDir = join(repoDir, "interactions");
-  const intFiles = readdirSync(intDir).filter((f) => f.startsWith("interactions-") && f.endsWith(".db"));
+  const intFiles = existsSync(intDir)
+    ? readdirSync(intDir).filter((f) => f.startsWith("interactions-") && f.endsWith(".db"))
+    : [];
 
   for (const file of intFiles) {
     const alias = `att_${attachIdx++}`;
