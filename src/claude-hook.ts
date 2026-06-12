@@ -11,27 +11,30 @@ const SESSION_END_COMMAND =
 //   1. Session idle ≥45s (no new Claude response since this hook started)
 //   2. This session hasn't run extract-facts in the last 30 minutes
 //
-// Cooldown is SCOPED TO THIS SESSION via $PPID — each Claude Code session
-// has a unique parent PID, so one session's run never blocks another.
+// Fires when BOTH are true:
+//   1. THIS session idle ≥45s — uses per-session activity file so other
+//      active sessions don't reset the idle timer
+//   2. This session hasn't run extract-facts in the last 30 minutes
 //
-// Files:
-//   /tmp/tm-last-activity         — timestamp of last Claude response (any session)
+// ALL files scoped via $PPID — multiple concurrent sessions never interfere.
+//   /tmp/tm-activity-$PPID        — activity timestamp for THIS session only
 //   /tmp/tm-extracted-ppid-$PPID  — per-session cooldown timestamp
 const IDLE_EXTRACT_COMMAND =
+  "SPID=\"${PPID:-0}\"; " +
   "TS=$(date +%s); " +
-  "echo $TS > /tmp/tm-last-activity; " +
-  "SESSION_FLAG=\"/tmp/tm-extracted-ppid-${PPID:-0}\"; " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$$PPID] hook started, waiting 45s...\" >> /tmp/tm-idle.log; " +
+  "echo $TS > \"/tmp/tm-activity-$SPID\"; " +
+  "SESSION_FLAG=\"/tmp/tm-extracted-ppid-$SPID\"; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] hook started, waiting 45s...\" >> /tmp/tm-idle.log; " +
   "sleep 45; " +
-  "CURRENT=$(cat /tmp/tm-last-activity 2>/dev/null); " +
+  "CURRENT=$(cat \"/tmp/tm-activity-$SPID\" 2>/dev/null); " +
   "LAST=$(cat \"$SESSION_FLAG\" 2>/dev/null || echo 0); " +
   "NOW=$(date +%s); " +
   "ELAPSED=$((NOW - LAST)); " +
   "if [ \"$CURRENT\" = \"$TS\" ] && [ $ELAPSED -ge 1800 ]; then " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$$PPID] idle + 30min — firing extract-facts\" >> /tmp/tm-idle.log; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] idle + 30min — firing extract-facts\" >> /tmp/tm-idle.log; " +
   "echo $NOW > \"$SESSION_FLAG\" && exit 2; " +
   "else " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$$PPID] skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.log; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.log; " +
   "fi; " +
   "exit 0";
 
