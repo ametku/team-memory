@@ -42,8 +42,12 @@ export function initRepo(input: InitInput, createRepo: RepoCreator = ghRepoCreat
     join(repoDir, "config.yaml"),
     `version: 1\ndeveloper: ${developer}\n`,
   );
+  writeFileSync(
+    join(repoDir, ".gitignore"),
+    `# SQLite WAL companion files — transient, never commit\n*.db-shm\n*.db-wal\n\n# Local-only merged index — rebuilt from facts-*.db on every pull\nmerged_index.db\n\n# Generated dashboard — regenerate with \`team-memory dashboard\`\ndashboard.html\n\n# Extraction state — local to each developer\nprocessed-sessions.json\nprocessed-slack-threads.json\n`,
+  );
 
-  execFileSync("git", ["add", "README.md", "config.yaml"], { cwd: repoDir });
+  execFileSync("git", ["add", "README.md", "config.yaml", ".gitignore"], { cwd: repoDir });
   execFileSync("git", ["commit", "-m", "chore: initialize team-memory repo"], { cwd: repoDir });
 
   const setup = postCloneSetup({ repoDir });

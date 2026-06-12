@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.db
 merged_index.db
+*.db-shm
+*.db-wal

@@ -18,6 +18,7 @@ import { getDeveloperName } from "./developer.js";
 import { runPrepromptHook } from "./preprompt.js";
 import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
+import { generateDashboard } from "./dashboard.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
 
@@ -35,6 +36,7 @@ Commands:
   preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
   session-end          Commit accumulated surface interactions to git
   extract-bg           Extract facts from Claude Code session files using NerdCompletion
+  dashboard            Generate and open a static HTML fact browser
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -302,6 +304,16 @@ function main(): void {
       process.stderr.write(`Error: ${e.message}\n`);
       process.exit(1);
     });
+    return;
+  }
+
+  if (command === "dashboard") {
+    const repoDir = resolveRepoDir();
+    const indexPath = join(repoDir, "merged_index.db");
+    const outputPath = join(repoDir, "dashboard.html");
+    const noOpen = commandArgs.includes("--no-open");
+    const result = generateDashboard({ repoDir, indexPath, outputPath, openBrowser: !noOpen });
+    process.stdout.write(`Dashboard: ${result.factCount} facts from ${result.authorCount} author(s) → ${result.outputPath}\n`);
     return;
   }
 
