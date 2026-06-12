@@ -5,6 +5,7 @@ import { execSync } from "child_process";
 import { queryFacts } from "./query.js";
 import { logSurfaces } from "./surface-logging.js";
 import { isOptedIn } from "./opt-in.js";
+import { isQualifyingPrompt } from "./slack-trigger.js";
 
 export interface PrepromptInput {
   prompt: string;
@@ -44,16 +45,32 @@ function _runPrepromptHook(input: PrepromptInput): PrepromptOutput {
   }
 
   const results = queryFacts({ indexPath, query: prompt, limit: 5, project });
+  const qualifying = isQualifyingPrompt(prompt);
 
-  if (results.length === 0) {
+  if (results.length === 0 && !qualifying) {
     return { continue: true };
   }
 
-  logSurfaces(join(repoDir, "interactions"), developer, results.map((r) => r.id));
+  const lines: string[] = [];
 
-  const lines = ["--- Team Memory Facts ---"];
-  for (const r of results) {
-    lines.push(`[${r.id}] ${r.content}`);
+  if (results.length > 0) {
+    logSurfaces(join(repoDir, "interactions"), developer, results.map((r) => r.id));
+    lines.push("--- Team Memory Facts ---");
+    for (const r of results) {
+      lines.push(`[${r.id}] ${r.content}`);
+    }
+  }
+
+  if (qualifying) {
+    if (lines.length > 0) lines.push("");
+    lines.push("--- Slack Background Search ---");
+    lines.push(
+      "This prompt looks like a question, debugging session, or architecture decision. " +
+      "Please spawn a background Slack search agent using the Agent tool with run_in_background: true. " +
+      "The agent should: search Slack for threads relevant to this prompt, read the top 3 threads, " +
+      "record each via `team-memory slack-record --url <url> --summary \"<one sentence>\" --prompt \"<original prompt>\"`, " +
+      "then surface the links and summaries as a follow-up message."
+    );
   }
 
   return {

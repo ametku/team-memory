@@ -97,11 +97,12 @@ describe("runPrepromptHook", () => {
     expect(ctx).toContain("frontend fact");
   });
 
-  test("returns continue:true with no additionalContext when prompt has FTS special characters", () => {
+  test("returns continue:true with no additionalContext when prompt has FTS special characters and no signals", () => {
     seedAndBuild([{ content: "Rate limit is 100 requests per second" }]);
 
+    // Deliberately non-qualifying: no question/debug/arch keywords, > 20 chars, but has FTS special chars
     const result = runPrepromptHook({
-      prompt: `what"s the rate limit? OR AND (test)`,
+      prompt: `rate limit "OR" AND (test)`,
       indexPath,
       repoDir,
       developer: "alice",

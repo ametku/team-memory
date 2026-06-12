@@ -5,7 +5,7 @@ import { homedir } from "os";
 
 const PREPROMPT_COMMAND = "team-memory preprompt-hook";
 const SESSION_END_COMMAND =
-  "echo 'team-memory: run /extract-facts before quitting to save anything worth keeping.'";
+  "team-memory slack-review; echo 'team-memory: run /extract-facts before quitting to save anything worth keeping.'";
 const SKILL_NAME = "extract-facts";
 
 export interface InstallClaudeHookInput {
