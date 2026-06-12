@@ -20,6 +20,7 @@ import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
 import { generateDashboard } from "./dashboard.js";
 import { createOptInMarker, registerProject, isOptedIn } from "./opt-in.js";
+import { runExtractSlack } from "./extract-slack.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
 
@@ -39,6 +40,7 @@ Commands:
   extract-bg           Extract facts from Claude Code session files using NerdCompletion
   dashboard            Generate and open a static HTML fact browser
   opt-in               Opt the current project into team-memory fact extraction
+  extract-slack        Extract facts from Slack threads matching queued prompts
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -347,6 +349,15 @@ function main(): void {
     const noOpen = commandArgs.includes("--no-open");
     const result = generateDashboard({ repoDir, indexPath, outputPath, openBrowser: !noOpen });
     process.stdout.write(`Dashboard: ${result.factCount} facts from ${result.authorCount} author(s) → ${result.outputPath}\n`);
+    return;
+  }
+
+  if (command === "extract-slack") {
+    const dryRun = commandArgs.includes("--dry-run");
+    runExtractSlack({ dryRun }).catch((e: any) => {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
+    });
     return;
   }
 

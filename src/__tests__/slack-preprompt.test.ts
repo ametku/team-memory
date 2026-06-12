@@ -4,8 +4,9 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { rebuildIndex } from "../merged-index.js";
 import { runPrepromptHook } from "../preprompt.js";
+import { pendingPrompts } from "../slack-queue.js";
 
-describe("preprompt hook — Slack background agent injection", () => {
+describe("preprompt hook — Slack queue logging", () => {
   let repoDir: string;
   let indexPath: string;
 
@@ -19,42 +20,35 @@ describe("preprompt hook — Slack background agent injection", () => {
 
   afterEach(() => { rmSync(repoDir, { recursive: true }); });
 
-  it("injects background agent instruction for qualifying prompt", () => {
+  it("queues qualifying prompt silently", () => {
+    runPrepromptHook({
+      prompt: "why does the payments service keep timing out",
+      indexPath, repoDir, developer: "alice",
+    });
+    expect(pendingPrompts(repoDir)).toHaveLength(1);
+    expect(pendingPrompts(repoDir)[0].prompt).toBe("why does the payments service keep timing out");
+  });
+
+  it("does not queue non-qualifying prompt", () => {
+    runPrepromptHook({ prompt: "fix typo", indexPath, repoDir, developer: "alice" });
+    expect(pendingPrompts(repoDir)).toHaveLength(0);
+  });
+
+  it("does not inject Slack instruction into additionalContext", () => {
     const result = runPrepromptHook({
       prompt: "why does the payments service keep timing out",
-      indexPath,
-      repoDir,
-      developer: "alice",
+      indexPath, repoDir, developer: "alice",
     });
+    const ctx = result.hookSpecificOutput?.additionalContext ?? "";
+    expect(ctx).not.toContain("slack");
+    expect(ctx).not.toContain("Agent");
+  });
 
+  it("queue logging never blocks the prompt — returns continue:true", () => {
+    const result = runPrepromptHook({
+      prompt: "why does the payments service crash on startup",
+      indexPath, repoDir, developer: "alice",
+    });
     expect(result.continue).toBe(true);
-    const ctx = result.hookSpecificOutput?.additionalContext ?? "";
-    expect(ctx).toContain("Slack");
-    expect(ctx).toContain("background");
-    expect(ctx).toContain("team-memory slack-record");
-  });
-
-  it("does not inject Slack instruction for non-qualifying prompt", () => {
-    const result = runPrepromptHook({
-      prompt: "fix typo",
-      indexPath,
-      repoDir,
-      developer: "alice",
-    });
-
-    const ctx = result.hookSpecificOutput?.additionalContext ?? "";
-    expect(ctx).not.toContain("slack-record");
-  });
-
-  it("does not inject Slack instruction for short prompt", () => {
-    const result = runPrepromptHook({
-      prompt: "add return",
-      indexPath,
-      repoDir,
-      developer: "alice",
-    });
-
-    const ctx = result.hookSpecificOutput?.additionalContext ?? "";
-    expect(ctx).not.toContain("slack-record");
   });
 });
