@@ -1,11 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { openFactsDb, insertFact } from "../facts-db.js";
 import { rebuildIndex } from "../merged-index.js";
 import { openInteractionsDb } from "../interactions-db.js";
 import { runPrepromptHook } from "../preprompt.js";
+import { createOptInMarker } from "../opt-in.js";
 
 describe("runPrepromptHook", () => {
   let repoDir: string;
@@ -121,5 +122,39 @@ describe("runPrepromptHook", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0].surface_count).toBe(1);
+  });
+
+  test("returns continue:true with no context when project is not opted in", () => {
+    const projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "tm-not-opted-")));
+    seedAndBuild([{ content: "Use viper for config parsing" }]);
+
+    const result = runPrepromptHook({
+      prompt: "viper config", indexPath, repoDir, developer: "alice", projectRoot,
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput).toBeUndefined();
+    rmSync(projectRoot, { recursive: true });
+  });
+
+  test("injects facts when project is opted in", () => {
+    const projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "tm-opted-in-")));
+    createOptInMarker(projectRoot);
+    seedAndBuild([{ content: "Use viper for config parsing" }]);
+
+    const result = runPrepromptHook({
+      prompt: "viper config", indexPath, repoDir, developer: "alice", projectRoot,
+    });
+
+    expect(result.hookSpecificOutput?.additionalContext).toContain("viper");
+    rmSync(projectRoot, { recursive: true });
+  });
+
+  test("injects facts when projectRoot is not provided (backward compat)", () => {
+    seedAndBuild([{ content: "Use viper for config parsing" }]);
+
+    const result = runPrepromptHook({ prompt: "viper config", indexPath, repoDir, developer: "alice" });
+
+    expect(result.hookSpecificOutput?.additionalContext).toContain("viper");
   });
 });

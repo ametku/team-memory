@@ -58,6 +58,15 @@ function detectProject(): string | undefined {
   }
 }
 
+function detectProjectRoot(): string | undefined {
+  try {
+    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim();
+    return root || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseAddArgs(args: string[]): { content: string; project?: string; tags?: string[] } {
   const content = args[0];
   if (!content) {
@@ -294,7 +303,8 @@ function main(): void {
         try { return getDeveloperName(); } catch { return "unknown"; }
       })();
       const project = detectProject();
-      const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project });
+      const projectRoot = detectProjectRoot();
+      const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project, projectRoot });
       process.stdout.write(JSON.stringify(result));
     });
     return;

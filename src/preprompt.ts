@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { execSync } from "child_process";
 import { queryFacts } from "./query.js";
 import { logSurfaces } from "./surface-logging.js";
+import { isOptedIn } from "./opt-in.js";
 
 export interface PrepromptInput {
   prompt: string;
@@ -11,6 +12,7 @@ export interface PrepromptInput {
   repoDir: string;
   developer: string;
   project?: string;
+  projectRoot?: string;
 }
 
 export interface PrepromptOutput {
@@ -30,7 +32,12 @@ export function runPrepromptHook(input: PrepromptInput): PrepromptOutput {
 }
 
 function _runPrepromptHook(input: PrepromptInput): PrepromptOutput {
-  const { prompt, indexPath, repoDir, developer, project } = input;
+  const { prompt, indexPath, repoDir, developer, project, projectRoot } = input;
+
+  // Gate everything on opt-in — if we know the project root and it's not opted in, do nothing
+  if (projectRoot && !isOptedIn(projectRoot)) {
+    return { continue: true };
+  }
 
   if (!existsSync(indexPath)) {
     return { continue: true };
