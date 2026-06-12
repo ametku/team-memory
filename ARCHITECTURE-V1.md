@@ -201,8 +201,34 @@ Tag normalization happens at index rebuild time, not at insert. FTS5 indexes tag
 - `team-memory rebuild-index` — rebuild `merged_index.db` from all `.db` files in the repo.
 - `team-memory prune` — apply prune rules to facts you authored; DELETE qualifying rows from `facts-<dev>.db`, commit.
 - `team-memory sync` — git pull + rebuild index + (optional) git push pending commits.
+- `team-memory dashboard [--no-open]` — generate `dashboard.html` and open in browser.
 
-### 6. MCP Server
+### 6. Dashboard
+
+**Purpose:** A locally generated, self-contained static HTML page that makes the team's shared fact store browsable and inspectable without needing to know what to search for.
+
+**How it works:**
+1. `team-memory dashboard` reads `merged_index.db` (facts + trust scores), all `facts-*.db` (author attribution + dates), and all `interactions-*.db` (surface counts + reject counts).
+2. All HTML is pre-rendered in TypeScript — the page is fully readable without JavaScript.
+3. JavaScript adds interactivity: filtering, sorting, tab switching, tag navigation, fact card expand/collapse.
+4. Output is written to `${TEAM_MEMORY_DIR}/dashboard.html` (a single self-contained file — no server, no dependencies).
+5. The file is opened in the default browser automatically (`open` on macOS, `xdg-open` on Linux). Use `--no-open` to skip this.
+
+**Three views:**
+- **Team View** — all facts from every author, sortable by trust (default), date added, or surface count. Keyword search and project filter.
+- **Members View** — per-developer profile with two tabs: Authored (facts they added, sorted by trust) and Activity (most-surfaced facts). Sidebar lists all contributors.
+- **Tags View** — Tag Index showing all tags weighted by frequency. Clicking any tag shows all facts carrying it, sorted by trust, with a related-tags sidebar derived from co-occurrence.
+
+**Fact card expanded detail:** full content, author, project, all tags (clickable), trust score, surface count, reject count, date added, last surfaced date, and a copyable `team-memory reject <id>` command.
+
+**Decisions:**
+- Output path is `${TEAM_MEMORY_DIR}/dashboard.html` — lives next to the facts, not in a cache dir. Excluded from git via `.gitignore`.
+- All card HTML is pre-rendered server-side (TypeScript) so tests can assert on literal content without a browser. JS re-renders only the filtered/sorted list on user interaction.
+- `dashboard.html` is gitignored — it is regenerated on demand, not shared. Run `team-memory dashboard` after `team-memory sync` for an up-to-date view.
+- `--no-open` flag skips the browser launch — used in tests and CI.
+- No external dependencies — inline CSS and vanilla JS only.
+
+### 7. MCP Server
 
 **Purpose:** Thin wrapper over CLI, exposing tools for agents that support MCP.
 
