@@ -202,6 +202,7 @@ Tag normalization happens at index rebuild time, not at insert. FTS5 indexes tag
 - `team-memory prune` — apply prune rules to facts you authored; DELETE qualifying rows from `facts-<dev>.db`, commit.
 - `team-memory sync` — git pull + rebuild index + (optional) git push pending commits.
 - `team-memory dashboard [--no-open]` — generate `dashboard.html` and open in browser.
+- `team-memory opt-in` — opt the current project into team-memory fact extraction.
 
 ### 6. Dashboard
 
@@ -228,7 +229,36 @@ Tag normalization happens at index rebuild time, not at insert. FTS5 indexes tag
 - `--no-open` flag skips the browser launch — used in tests and CI.
 - No external dependencies — inline CSS and vanilla JS only.
 
-### 7. MCP Server
+### 7. Project Opt-In
+
+**Purpose:** Ensure `extract-bg` and `extract-slack` only process Claude sessions from repos the developer has explicitly enrolled in team-memory. Prevents personal projects, sensitive repos, and unrelated work from feeding the shared fact store.
+
+**Mechanism:**
+
+- **Marker file** — `.claude/team-memory.md` in the project root signals opt-in. Commit this file so all teammates are opted in automatically.
+- **Registry** — `${TEAM_MEMORY_DIR}/opted-in-projects.json` maps absolute project paths to their Claude-encoded session directory names. Machine-specific; gitignored.
+
+**How to opt in a project:**
+```bash
+cd ~/repos/my-service
+team-memory opt-in
+# → creates .claude/team-memory.md
+# → registers project in opted-in-projects.json
+```
+
+**`join` and `init` auto-opt-in** the current working directory, so the first-run experience requires no extra steps.
+
+**`extract-bg` behaviour:**
+- Loads `opted-in-projects.json` at startup.
+- Filters session files to only those whose parent directory name matches a registered encoded path.
+- If no projects are opted in, prints a clear warning and exits without processing anything.
+
+**Decisions:**
+- **File over env var** — a committed `.claude/team-memory.md` is discoverable, reviewable, and team-auditable. An env var is invisible.
+- **Registry for `extract-bg`** — Claude session directories use path encoding (`/` → `-`) that is ambiguous for paths containing dashes. Rather than decoding, the registry stores the pre-computed encoded name from the known absolute path at opt-in time. `extract-bg` compares directory names directly against registry values — no ambiguous decoding.
+- **`realpathSync` throughout** — handles macOS `/var` → `/private/var` symlinks so paths are consistent between `mktemp` and `git rev-parse --show-toplevel`.
+
+### 8. MCP Server
 
 **Purpose:** Thin wrapper over CLI, exposing tools for agents that support MCP.
 
@@ -343,6 +373,19 @@ Reject path is symmetric: `team-memory reject f-X` → UPSERT into `interactions
 - **Index rebuild** — triggered by post-merge git hook after pull.
 - **Batched commits** — surface-count UPSERTs accumulate during a session and commit once at session end, not per prompt.
 - **No auto-push** — developer pushes when ready.
+
+### GitHub access requirement
+
+`team-memory join` clones the repo and sets up all local infrastructure (per-dev DBs, merged index, hooks). However, **pushing facts requires write access on GitHub** — cloning a public repo does not grant push permission.
+
+Each new developer must be added as a collaborator or org member by the repo owner before `team-memory sync --push` will succeed:
+
+```bash
+# Repo owner adds a new developer
+gh api repos/<org>/<repo>/collaborators/<username> -X PUT -f permission=push
+```
+
+Until access is granted, facts accumulate in the developer's local `facts-<dev>.db` and sync automatically once write access is available. No facts are lost.
 
 ## Scope Boundaries
 

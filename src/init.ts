@@ -5,6 +5,7 @@ import { join } from "path";
 import { assertDirNotExists, postCloneSetup, PostCloneSetupResult } from "./setup.js";
 import { getDeveloperName } from "./developer.js";
 import { installClaudeHook, installClaudeSkill } from "./claude-hook.js";
+import { createOptInMarker, registerProject } from "./opt-in.js";
 
 export interface InitInput {
   org: string;
@@ -44,7 +45,7 @@ export function initRepo(input: InitInput, createRepo: RepoCreator = ghRepoCreat
   );
   writeFileSync(
     join(repoDir, ".gitignore"),
-    `# SQLite WAL companion files — transient, never commit\n*.db-shm\n*.db-wal\n\n# Local-only merged index — rebuilt from facts-*.db on every pull\nmerged_index.db\n\n# Generated dashboard — regenerate with \`team-memory dashboard\`\ndashboard.html\n\n# Extraction state — local to each developer\nprocessed-sessions.json\nprocessed-slack-threads.json\n`,
+    `# SQLite WAL companion files — transient, never commit\n*.db-shm\n*.db-wal\n\n# Local-only merged index — rebuilt from facts-*.db on every pull\nmerged_index.db\n\n# Generated dashboard — regenerate with \`team-memory dashboard\`\ndashboard.html\n\n# Extraction state — local to each developer\nprocessed-sessions.json\nprocessed-slack-threads.json\n\n# Opt-in registry + Slack queue — machine-specific, never commit\nopted-in-projects.json\nslack-queue.json\n`,
   );
 
   execFileSync("git", ["add", "README.md", "config.yaml", ".gitignore"], { cwd: repoDir });
@@ -54,6 +55,11 @@ export function initRepo(input: InitInput, createRepo: RepoCreator = ghRepoCreat
 
   installClaudeHook({ settingsPath: process.env.TEAM_MEMORY_CLAUDE_SETTINGS });
   installClaudeSkill({ skillsDir: process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR });
+
+  try {
+    const projectRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim();
+    if (projectRoot) { createOptInMarker(projectRoot); registerProject(repoDir, projectRoot); }
+  } catch { /* not in a project repo — skip */ }
 
   execFileSync("git", ["push", "origin", "HEAD"], { cwd: repoDir });
 

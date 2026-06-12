@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
-import { existsSync, readdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { execSync } from "child_process";
 
 export interface DashboardFact {
@@ -510,6 +510,7 @@ if(h==='members'||h==='tags')showView(h);
 export function generateDashboard(input: DashboardInput): DashboardResult {
   const data = assembleDashboardData(input.repoDir, input.indexPath);
   const html = renderHtml(data);
+  mkdirSync(dirname(input.outputPath), { recursive: true });
   writeFileSync(input.outputPath, html, "utf-8");
 
   if (input.openBrowser !== false) {
