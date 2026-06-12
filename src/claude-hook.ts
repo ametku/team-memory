@@ -36,11 +36,16 @@ interface ClaudeSettings {
   [key: string]: unknown;
 }
 
-function ensureHook(groups: ClaudeHookGroup[], command: string): boolean {
-  const present = groups.some((g) => g.hooks?.some((h) => h.command === command));
-  if (present) return false;
-  groups.push({ hooks: [{ type: "command", command }] });
-  return true;
+// Remove any hook group whose command references team-memory — used before
+// re-installing so updates never leave stale duplicate hooks behind.
+function removeTeamMemoryHooks(groups: ClaudeHookGroup[]): ClaudeHookGroup[] {
+  return groups.filter(
+    (g) => !g.hooks?.some((h) => typeof h.command === "string" && h.command.includes("team-memory"))
+  );
+}
+
+function addHook(groups: ClaudeHookGroup[], entry: Record<string, unknown>): void {
+  groups.push({ hooks: [entry as unknown as ClaudeHookEntry] });
 }
 
 export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallClaudeHookResult {
@@ -54,15 +59,29 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   settings.hooks.UserPromptSubmit ??= [];
   settings.hooks.SessionEnd ??= [];
 
-  const prepromptInstalled = ensureHook(settings.hooks.UserPromptSubmit, PREPROMPT_COMMAND);
-  const sessionEndInstalled = ensureHook(settings.hooks.SessionEnd, SESSION_END_COMMAND);
+  // Track whether hooks were already at current version before replacing.
+  // "installed = true" means the hook was new or was stale and got updated.
+  const prepromptCurrent = settings.hooks.UserPromptSubmit
+    .some((g) => g.hooks?.some((h) => h.command === PREPROMPT_COMMAND));
+  const sessionEndCurrent = settings.hooks.SessionEnd
+    .some((g) => g.hooks?.some((h) => h.command === SESSION_END_COMMAND));
 
-  if (prepromptInstalled || sessionEndInstalled) {
-    mkdirSync(dirname(settingsPath), { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  }
+  // Clean-replace: strip ALL team-memory hooks then re-add current versions.
+  // This prevents stale duplicates when hook commands change between versions.
+  settings.hooks.UserPromptSubmit = removeTeamMemoryHooks(settings.hooks.UserPromptSubmit);
+  settings.hooks.SessionEnd = removeTeamMemoryHooks(settings.hooks.SessionEnd);
 
-  return { settingsPath, prepromptInstalled, sessionEndInstalled };
+  addHook(settings.hooks.UserPromptSubmit, { type: "command", command: PREPROMPT_COMMAND });
+  addHook(settings.hooks.SessionEnd, { type: "command", command: SESSION_END_COMMAND });
+
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+
+  return {
+    settingsPath,
+    prepromptInstalled: !prepromptCurrent,
+    sessionEndInstalled: !sessionEndCurrent,
+  };
 }
 
 export interface InstallClaudeSkillInput {
