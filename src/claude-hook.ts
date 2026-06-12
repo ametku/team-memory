@@ -14,7 +14,7 @@ const IDLE_EXTRACT_COMMAND =
   "TS=$(date +%s); " +
   "echo $TS > /tmp/tm-last-activity; " +
   "SESSION_FLAG=\"/tmp/tm-extracted-${CLAUDE_SESSION_ID:-default}\"; " +
-  "( sleep 180 && " +
+  "( sleep 45 && " +
   "CURRENT=$(cat /tmp/tm-last-activity 2>/dev/null) && " +
   "[ \"$CURRENT\" = \"$TS\" ] && " +
   "[ ! -f \"$SESSION_FLAG\" ] && " +
@@ -96,7 +96,7 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
         type: "command",
         command: IDLE_EXTRACT_COMMAND,
         asyncRewake: true,
-        rewakeMessage: "Session idle for 3 minutes. Please run /extract-facts now to save any valuable insights from this session.",
+        rewakeMessage: "Session idle for 45 seconds. Please run /extract-facts now to save any valuable insights from this session.",
       }],
     });
     idleExtractInstalled = true;
