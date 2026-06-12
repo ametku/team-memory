@@ -17,10 +17,16 @@ const SESSION_END_COMMAND =
 const IDLE_EXTRACT_COMMAND =
   "TS=$(date +%s); " +
   "echo $TS > /tmp/tm-last-activity; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') hook started, waiting 45s...\" >> /tmp/tm-idle.log; " +
   "sleep 45; " +
   "CURRENT=$(cat /tmp/tm-last-activity 2>/dev/null); " +
   "FLAG=\"/tmp/tm-extracted-$TS\"; " +
-  "[ \"$CURRENT\" = \"$TS\" ] && [ ! -f \"$FLAG\" ] && touch \"$FLAG\" && exit 2; " +
+  "if [ \"$CURRENT\" = \"$TS\" ] && [ ! -f \"$FLAG\" ]; then " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') idle detected — firing extract-facts\" >> /tmp/tm-idle.log; " +
+  "touch \"$FLAG\" && exit 2; " +
+  "else " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') activity detected or already ran — skipping\" >> /tmp/tm-idle.log; " +
+  "fi; " +
   "exit 0";
 
 const SKILL_NAME = "extract-facts";
