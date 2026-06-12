@@ -10,15 +10,17 @@ const SESSION_END_COMMAND =
 // Fires after every Claude response. Starts a 3-minute background countdown.
 // If no new response fires within 3 min (idle), wakes Claude once per session
 // to run /extract-facts automatically.
-// asyncRewake runs this command in background automatically — no & needed.
-// The hook sleeps 45s, then exits 2 if still idle → wakes Claude once per session.
+// asyncRewake runs this command in background — no & needed.
+// Sleeps 45s then exits 2 if still idle → wakes Claude to run /extract-facts.
+// The timestamp check prevents firing when the user is actively sending prompts.
+// A flag file scoped to the first-seen timestamp prevents repeat triggers.
 const IDLE_EXTRACT_COMMAND =
   "TS=$(date +%s); " +
   "echo $TS > /tmp/tm-last-activity; " +
-  "SESSION_FLAG=\"/tmp/tm-extracted-${CLAUDE_SESSION_ID:-default}\"; " +
   "sleep 45; " +
   "CURRENT=$(cat /tmp/tm-last-activity 2>/dev/null); " +
-  "[ \"$CURRENT\" = \"$TS\" ] && [ ! -f \"$SESSION_FLAG\" ] && touch \"$SESSION_FLAG\" && exit 2; " +
+  "FLAG=\"/tmp/tm-extracted-$TS\"; " +
+  "[ \"$CURRENT\" = \"$TS\" ] && [ ! -f \"$FLAG\" ] && touch \"$FLAG\" && exit 2; " +
   "exit 0";
 
 const SKILL_NAME = "extract-facts";
