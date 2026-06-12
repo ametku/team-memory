@@ -353,14 +353,16 @@ function main(): void {
   }
 
   if (command === "update") {
+    process.stdout.write(`Wiping all team-memory hooks from settings...\n`);
     const result = updateInstallation();
-    process.stdout.write(`Hooks updated → ${result.settingsPath}\n`);
-    process.stdout.write(`Skill updated: ${result.skillUpdated ? "yes" : "already current"}\n`);
+    process.stdout.write(`Hooks reinstalled (fresh) → ${result.settingsPath}\n`);
+    process.stdout.write(`Skill: ${result.skillUpdated ? "updated to latest" : "already current"}\n`);
     if (result.pullWarning) {
-      process.stdout.write(`Warning: ${result.pullWarning}\n`);
+      process.stdout.write(`Warning: pull failed — ${result.pullWarning}\n`);
     } else {
       process.stdout.write(`Synced latest facts from team.\n`);
     }
+    process.stdout.write(`Done. All settings are now at current version.\n`);
     return;
   }
 

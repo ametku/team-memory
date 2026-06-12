@@ -116,7 +116,7 @@ describe("team-memory update CLI", () => {
       },
     });
 
-    expect(output).toContain("Hooks updated");
+    expect(output).toContain("Hooks reinstalled");
     expect(output).toContain(settingsPath);
   });
 });

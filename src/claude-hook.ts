@@ -36,16 +36,31 @@ interface ClaudeSettings {
   [key: string]: unknown;
 }
 
-// Remove any hook group whose command references team-memory — used before
-// re-installing so updates never leave stale duplicate hooks behind.
-function removeTeamMemoryHooks(groups: ClaudeHookGroup[]): ClaudeHookGroup[] {
-  return groups.filter(
-    (g) => !g.hooks?.some((h) => typeof h.command === "string" && h.command.includes("team-memory"))
-  );
+function isTeamMemoryHook(group: ClaudeHookGroup): boolean {
+  return group.hooks?.some(
+    (h) => typeof h.command === "string" && h.command.includes("team-memory")
+  ) ?? false;
 }
 
 function addHook(groups: ClaudeHookGroup[], entry: Record<string, unknown>): void {
   groups.push({ hooks: [entry as unknown as ClaudeHookEntry] });
+}
+
+// Wipe ALL team-memory hooks from every hook event in settings.
+// Scans every event type so no stale hook survives a version upgrade,
+// even if a future version moves a hook to a different event.
+function wipeAllTeamMemoryHooks(settings: ClaudeSettings): number {
+  let removed = 0;
+  if (!settings.hooks) return 0;
+  for (const event of Object.keys(settings.hooks)) {
+    const groups = settings.hooks[event] as ClaudeHookGroup[] | undefined;
+    if (!Array.isArray(groups)) continue;
+    const before = groups.length;
+    const filtered = groups.filter((g) => !isTeamMemoryHook(g));
+    settings.hooks[event] = filtered;
+    removed += before - filtered.length;
+  }
+  return removed;
 }
 
 export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallClaudeHookResult {
@@ -59,20 +74,21 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   settings.hooks.UserPromptSubmit ??= [];
   settings.hooks.SessionEnd ??= [];
 
-  // Track whether hooks were already at current version before replacing.
-  // "installed = true" means the hook was new or was stale and got updated.
-  const prepromptCurrent = settings.hooks.UserPromptSubmit
+  // Track whether hooks were already at current version before wiping.
+  const prepromptCurrent = (settings.hooks.UserPromptSubmit as ClaudeHookGroup[])
     .some((g) => g.hooks?.some((h) => h.command === PREPROMPT_COMMAND));
-  const sessionEndCurrent = settings.hooks.SessionEnd
+  const sessionEndCurrent = (settings.hooks.SessionEnd as ClaudeHookGroup[])
     .some((g) => g.hooks?.some((h) => h.command === SESSION_END_COMMAND));
 
-  // Clean-replace: strip ALL team-memory hooks then re-add current versions.
-  // This prevents stale duplicates when hook commands change between versions.
-  settings.hooks.UserPromptSubmit = removeTeamMemoryHooks(settings.hooks.UserPromptSubmit);
-  settings.hooks.SessionEnd = removeTeamMemoryHooks(settings.hooks.SessionEnd);
+  // Wipe ALL team-memory hooks across every event type, then reinstall fresh.
+  // This handles version upgrades where hook commands change or move to new events.
+  wipeAllTeamMemoryHooks(settings);
 
-  addHook(settings.hooks.UserPromptSubmit, { type: "command", command: PREPROMPT_COMMAND });
-  addHook(settings.hooks.SessionEnd, { type: "command", command: SESSION_END_COMMAND });
+  settings.hooks.UserPromptSubmit ??= [];
+  settings.hooks.SessionEnd ??= [];
+
+  addHook(settings.hooks.UserPromptSubmit as ClaudeHookGroup[], { type: "command", command: PREPROMPT_COMMAND });
+  addHook(settings.hooks.SessionEnd as ClaudeHookGroup[], { type: "command", command: SESSION_END_COMMAND });
 
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
