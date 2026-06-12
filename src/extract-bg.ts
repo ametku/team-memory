@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { execSync } from "child_process";
 import * as readline from "readline";
 import { resolveRepoDir } from "./repo.js";
+import { getOptedInEncodedPaths } from "./opt-in.js";
 
 const LOG_PREFIX = "[extract-bg]";
 
@@ -237,10 +238,23 @@ export async function runExtractBg({ dryRun }: { dryRun: boolean }): Promise<voi
     process.env.NERD_COMPLETION_BASE_URL ??
     "https://nerd-completion.staging-service.nr-ops.net";
 
-  const stateFile = join(resolveRepoDir(), "processed-sessions.json");
+  const repoDir = resolveRepoDir();
+  const stateFile = join(repoDir, "processed-sessions.json");
   const state = dryRun ? null : loadState(stateFile);
 
-  const allFiles = findJsonlFiles();
+  const optedIn = getOptedInEncodedPaths(repoDir);
+  if (optedIn.length === 0) {
+    process.stderr.write(
+      "Warning: no projects opted into team-memory.\n" +
+      "Run `team-memory opt-in` from your project directory first.\n"
+    );
+    return;
+  }
+
+  const allFiles = findJsonlFiles().filter(f => {
+    const encodedDir = basename(dirname(f));
+    return optedIn.some(enc => encodedDir === enc);
+  });
 
   let toProcess: string[];
   if (dryRun) {

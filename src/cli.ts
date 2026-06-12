@@ -19,6 +19,7 @@ import { runPrepromptHook } from "./preprompt.js";
 import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
 import { generateDashboard } from "./dashboard.js";
+import { createOptInMarker, registerProject, isOptedIn } from "./opt-in.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
 
@@ -37,6 +38,7 @@ Commands:
   session-end          Commit accumulated surface interactions to git
   extract-bg           Extract facts from Claude Code session files using NerdCompletion
   dashboard            Generate and open a static HTML fact browser
+  opt-in               Opt the current project into team-memory fact extraction
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -295,6 +297,27 @@ function main(): void {
       const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project });
       process.stdout.write(JSON.stringify(result));
     });
+    return;
+  }
+
+  if (command === "opt-in") {
+    let projectRoot: string;
+    try {
+      projectRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim();
+    } catch {
+      process.stderr.write("Error: not in a git repository. Run this from your project directory.\n");
+      process.exit(1);
+    }
+    const repoDir = resolveRepoDir();
+    const markerCreated = createOptInMarker(projectRoot);
+    registerProject(repoDir, projectRoot);
+    if (markerCreated) {
+      process.stdout.write(`Opted in: ${projectRoot}\n`);
+      process.stdout.write(`Created: ${projectRoot}/.claude/team-memory.md\n`);
+      process.stdout.write(`Tip: commit .claude/team-memory.md so teammates are opted in too.\n`);
+    } else {
+      process.stdout.write(`Already opted in: ${projectRoot}\n`);
+    }
     return;
   }
 
