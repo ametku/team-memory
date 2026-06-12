@@ -7,6 +7,20 @@ const PREPROMPT_COMMAND = "team-memory preprompt-hook";
 const SESSION_END_COMMAND =
   "echo '{\"systemMessage\": \"team-memory: run /extract-facts before quitting to save anything worth keeping.\"}'";
 
+// Fires after every Claude response. Starts a 3-minute background countdown.
+// If no new response fires within 3 min (idle), wakes Claude once per session
+// to run /extract-facts automatically.
+const IDLE_EXTRACT_COMMAND =
+  "TS=$(date +%s); " +
+  "echo $TS > /tmp/tm-last-activity; " +
+  "SESSION_FLAG=\"/tmp/tm-extracted-${CLAUDE_SESSION_ID:-default}\"; " +
+  "( sleep 180 && " +
+  "CURRENT=$(cat /tmp/tm-last-activity 2>/dev/null) && " +
+  "[ \"$CURRENT\" = \"$TS\" ] && " +
+  "[ ! -f \"$SESSION_FLAG\" ] && " +
+  "touch \"$SESSION_FLAG\" && " +
+  "exit 2 ) &";
+
 const SKILL_NAME = "extract-facts";
 
 export interface InstallClaudeHookInput {
@@ -17,6 +31,7 @@ export interface InstallClaudeHookResult {
   settingsPath: string;
   prepromptInstalled: boolean;
   sessionEndInstalled: boolean;
+  idleExtractInstalled: boolean;
 }
 
 interface ClaudeHookEntry {
@@ -28,10 +43,22 @@ interface ClaudeHookGroup {
   hooks: ClaudeHookEntry[];
 }
 
+interface ClaudeHookEntryExtended {
+  type: string;
+  command: string;
+  asyncRewake?: boolean;
+  rewakeMessage?: string;
+}
+
+interface ClaudeHookGroupExtended {
+  hooks: ClaudeHookEntryExtended[];
+}
+
 interface ClaudeSettings {
   hooks?: {
     UserPromptSubmit?: ClaudeHookGroup[];
     SessionEnd?: ClaudeHookGroup[];
+    Stop?: ClaudeHookGroupExtended[];
   } & Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -53,16 +80,34 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   settings.hooks ??= {};
   settings.hooks.UserPromptSubmit ??= [];
   settings.hooks.SessionEnd ??= [];
+  settings.hooks.Stop ??= [];
 
   const prepromptInstalled = ensureHook(settings.hooks.UserPromptSubmit, PREPROMPT_COMMAND);
   const sessionEndInstalled = ensureHook(settings.hooks.SessionEnd, SESSION_END_COMMAND);
 
-  if (prepromptInstalled || sessionEndInstalled) {
+  const stopGroups = settings.hooks.Stop as ClaudeHookGroupExtended[];
+  const idlePresent = stopGroups.some(g =>
+    g.hooks?.some(h => h.command === IDLE_EXTRACT_COMMAND)
+  );
+  let idleExtractInstalled = false;
+  if (!idlePresent) {
+    stopGroups.push({
+      hooks: [{
+        type: "command",
+        command: IDLE_EXTRACT_COMMAND,
+        asyncRewake: true,
+        rewakeMessage: "Session idle for 3 minutes. Please run /extract-facts now to save any valuable insights from this session.",
+      }],
+    });
+    idleExtractInstalled = true;
+  }
+
+  if (prepromptInstalled || sessionEndInstalled || idleExtractInstalled) {
     mkdirSync(dirname(settingsPath), { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   }
 
-  return { settingsPath, prepromptInstalled, sessionEndInstalled };
+  return { settingsPath, prepromptInstalled, sessionEndInstalled, idleExtractInstalled };
 }
 
 export interface InstallClaudeSkillInput {
