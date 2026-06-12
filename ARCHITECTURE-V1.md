@@ -364,6 +364,41 @@ Reject path is symmetric: `team-memory reject f-X` → UPSERT into `interactions
 - MCP server optionally running locally.
 - Post-merge git hook installed in `~/.team-memory/.git/hooks/post-merge` to trigger `team-memory rebuild-index`.
 
+## Idle Extract-Facts Hook
+
+**Purpose:** Automatically trigger `/extract-facts` when a session has been idle for 45 seconds, so facts are never lost even if the developer forgets to run it manually before exiting.
+
+**Mechanism:** A `Stop` hook with `asyncRewake: true` installed in `~/.claude/settings.json` by `team-memory join`/`init`.
+
+**Policy:**
+- Fires only when **both** conditions are true:
+  1. Session has been idle ≥45 seconds (no new Claude response since the hook started)
+  2. At least 30 minutes have elapsed since `/extract-facts` last ran
+- This prevents interruptions during active work while ensuring facts are captured after any sustained idle period.
+
+**How it works:**
+```
+Claude responds → Stop hook fires (async, non-blocking)
+  → records timestamp to /tmp/tm-last-activity
+  → sleeps 45 seconds
+
+After 45s:
+  ├── Still idle AND 30min since last extract? → exit 2 → asyncRewake fires
+  │     → Claude wakes with: "Session idle for 45s. Run /extract-facts."
+  │     → /extract-facts runs automatically
+  └── Active OR ran recently → exit 0 → nothing happens
+```
+
+**Files used:**
+- `/tmp/tm-last-activity` — timestamp of last Claude response (reset on every Stop)
+- `/tmp/tm-last-extracted` — timestamp of last extract-facts trigger (30-min cooldown)
+- `/tmp/tm-idle.log` — human-readable log of all hook decisions for debugging
+
+**Decisions:**
+- `asyncRewake: true` handles background execution — do NOT use `&` in the command, as it causes the main process to exit 0 immediately and the asyncRewake never fires.
+- `CLAUDE_SESSION_ID` is not injected into hook environments — cooldown is tracked via the `/tmp/tm-last-extracted` timestamp file instead of a per-session flag.
+- Plain `echo` output from hooks is silently swallowed — hook output must be JSON `{"systemMessage": "..."}` to surface to the user.
+
 ## Sync Mechanism
 
 - **Standard git push/pull** — no custom sync infra.
