@@ -7,29 +7,31 @@ const PREPROMPT_COMMAND = "team-memory preprompt-hook";
 const SESSION_END_COMMAND =
   "echo '{\"systemMessage\": \"team-memory: run /extract-facts before quitting to save anything worth keeping.\"}'";
 
-// Fires after every Claude response. Starts a 3-minute background countdown.
-// If no new response fires within 3 min (idle), wakes Claude once per session
-// to run /extract-facts automatically.
-// Fires /extract-facts when:
-//   1. Session has been idle for 45s (no new Claude response)
-//   2. extract-facts has not run in the last 30 minutes
-// Uses two files:
-//   /tmp/tm-last-activity  — timestamp of last Claude response (updated every Stop)
-//   /tmp/tm-last-extracted — timestamp of last extract-facts trigger (persists 30 min)
+// Fires /extract-facts when BOTH are true:
+//   1. Session idle ≥45s (no new Claude response since this hook started)
+//   2. This session hasn't run extract-facts in the last 30 minutes
+//
+// Cooldown is SCOPED TO THIS SESSION via $PPID — each Claude Code session
+// has a unique parent PID, so one session's run never blocks another.
+//
+// Files:
+//   /tmp/tm-last-activity         — timestamp of last Claude response (any session)
+//   /tmp/tm-extracted-ppid-$PPID  — per-session cooldown timestamp
 const IDLE_EXTRACT_COMMAND =
   "TS=$(date +%s); " +
   "echo $TS > /tmp/tm-last-activity; " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') hook started, waiting 45s...\" >> /tmp/tm-idle.log; " +
+  "SESSION_FLAG=\"/tmp/tm-extracted-ppid-${PPID:-0}\"; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$$PPID] hook started, waiting 45s...\" >> /tmp/tm-idle.log; " +
   "sleep 45; " +
   "CURRENT=$(cat /tmp/tm-last-activity 2>/dev/null); " +
-  "LAST=$(cat /tmp/tm-last-extracted 2>/dev/null || echo 0); " +
+  "LAST=$(cat \"$SESSION_FLAG\" 2>/dev/null || echo 0); " +
   "NOW=$(date +%s); " +
   "ELAPSED=$((NOW - LAST)); " +
   "if [ \"$CURRENT\" = \"$TS\" ] && [ $ELAPSED -ge 1800 ]; then " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') idle + 30min elapsed — firing extract-facts\" >> /tmp/tm-idle.log; " +
-  "echo $NOW > /tmp/tm-last-extracted && exit 2; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$$PPID] idle + 30min — firing extract-facts\" >> /tmp/tm-idle.log; " +
+  "echo $NOW > \"$SESSION_FLAG\" && exit 2; " +
   "else " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.log; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$$PPID] skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.log; " +
   "fi; " +
   "exit 0";
 
