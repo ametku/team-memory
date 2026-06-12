@@ -31,31 +31,19 @@ export function runPrepromptHook(input: PrepromptInput): PrepromptOutput {
   }
 }
 
-function debug(msg: string): void {
-  if (process.env.TEAM_MEMORY_DEBUG) process.stderr.write(`[team-memory] ${msg}\n`);
-}
-
 function _runPrepromptHook(input: PrepromptInput): PrepromptOutput {
   const { prompt, indexPath, repoDir, developer, project, projectRoot } = input;
 
-  debug(`project root: ${projectRoot ?? "(unknown)"}`);
-
   // Gate everything on opt-in — if we know the project root and it's not opted in, do nothing
   if (projectRoot && !isOptedIn(projectRoot)) {
-    debug(`not opted in — skipping (run 'team-memory opt-in' from ${projectRoot})`);
     return { continue: true };
   }
-
-  debug(`opted in ✓`);
 
   if (!existsSync(indexPath)) {
-    debug(`no index at ${indexPath} — run 'team-memory rebuild-index'`);
     return { continue: true };
   }
 
-  debug(`querying index for: "${prompt.slice(0, 60)}"`);
   const results = queryFacts({ indexPath, query: prompt, limit: 5, project });
-  debug(`found ${results.length} matching fact(s)`);
 
   if (results.length === 0) {
     return { continue: true };
