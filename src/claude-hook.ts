@@ -8,6 +8,11 @@ const SESSION_END_COMMAND =
   "team-memory slack-review; echo 'team-memory: run /extract-facts before quitting to save anything worth keeping.'";
 const SKILL_NAME = "extract-facts";
 
+const SLACK_PERMISSIONS = [
+  "mcp__plugin_slack_slack__slack_search_public",
+  "mcp__plugin_slack_slack__slack_read_thread",
+];
+
 export interface InstallClaudeHookInput {
   settingsPath?: string;
 }
@@ -16,6 +21,7 @@ export interface InstallClaudeHookResult {
   settingsPath: string;
   prepromptInstalled: boolean;
   sessionEndInstalled: boolean;
+  slackPermissionsInstalled: boolean;
 }
 
 interface ClaudeHookEntry {
@@ -32,6 +38,10 @@ interface ClaudeSettings {
     UserPromptSubmit?: ClaudeHookGroup[];
     SessionEnd?: ClaudeHookGroup[];
   } & Record<string, unknown>;
+  permissions?: {
+    allow?: string[];
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -52,16 +62,23 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   settings.hooks ??= {};
   settings.hooks.UserPromptSubmit ??= [];
   settings.hooks.SessionEnd ??= [];
+  settings.permissions ??= {};
+  settings.permissions.allow ??= [];
 
   const prepromptInstalled = ensureHook(settings.hooks.UserPromptSubmit, PREPROMPT_COMMAND);
   const sessionEndInstalled = ensureHook(settings.hooks.SessionEnd, SESSION_END_COMMAND);
 
-  if (prepromptInstalled || sessionEndInstalled) {
+  const existingAllow = settings.permissions.allow;
+  const missingPerms = SLACK_PERMISSIONS.filter(p => !existingAllow.includes(p));
+  if (missingPerms.length > 0) existingAllow.push(...missingPerms);
+  const slackPermissionsInstalled = missingPerms.length > 0;
+
+  if (prepromptInstalled || sessionEndInstalled || slackPermissionsInstalled) {
     mkdirSync(dirname(settingsPath), { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   }
 
-  return { settingsPath, prepromptInstalled, sessionEndInstalled };
+  return { settingsPath, prepromptInstalled, sessionEndInstalled, slackPermissionsInstalled };
 }
 
 export interface InstallClaudeSkillInput {
