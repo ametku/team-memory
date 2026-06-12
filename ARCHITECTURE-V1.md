@@ -379,24 +379,29 @@ Reject path is symmetric: `team-memory reject f-X` → UPSERT into `interactions
 **How it works:**
 ```
 Claude responds → Stop hook fires (async, non-blocking)
-  → records timestamp to /tmp/tm-last-activity
+  → records timestamp to /tmp/tm-activity-$PPID  (THIS session only)
   → sleeps 45 seconds
 
 After 45s:
-  ├── Still idle AND 30min since last extract? → exit 2 → asyncRewake fires
-  │     → Claude wakes with: "Session idle for 45s. Run /extract-facts."
+  ├── Still idle (this session) AND 30min cooldown elapsed?
+  │     → exit 2 → asyncRewake fires
+  │     → Claude wakes: "Session idle 45s. Run /extract-facts."
   │     → /extract-facts runs automatically
   └── Active OR ran recently → exit 0 → nothing happens
 ```
 
-**Files used:**
-- `/tmp/tm-last-activity` — timestamp of last Claude response (reset on every Stop)
-- `/tmp/tm-last-extracted` — timestamp of last extract-facts trigger (30-min cooldown)
-- `/tmp/tm-idle.log` — human-readable log of all hook decisions for debugging
+**Files used (all scoped to `$PPID` — fully isolated per session):**
+- `/tmp/tm-activity-$PPID` — last Claude response timestamp for THIS session only
+- `/tmp/tm-extracted-ppid-$PPID` — last extract-facts run for THIS session (30-min cooldown)
+- `/tmp/tm-idle.log` — global human-readable log of all hook decisions for debugging
+
+**Multi-session behaviour:**
+Each Claude Code session has a unique parent PID (`$PPID`). All state files are scoped to this PID so concurrent sessions never interfere — Session B being active does not prevent Session A from detecting its own idle and firing extract-facts.
 
 **Decisions:**
-- `asyncRewake: true` handles background execution — do NOT use `&` in the command, as it causes the main process to exit 0 immediately and the asyncRewake never fires.
-- `CLAUDE_SESSION_ID` is not injected into hook environments — cooldown is tracked via the `/tmp/tm-last-extracted` timestamp file instead of a per-session flag.
+- `asyncRewake: true` handles background execution — do NOT use `&` in the command, as it causes the main process to exit 0 immediately and the asyncRewake never fires. This is the documented official mechanism for idle wake-up in Claude Code hooks.
+- `CLAUDE_SESSION_ID` is not injected into hook environments — `$PPID` is used instead as the session identifier.
+- Both the activity file and cooldown file must be `$PPID`-scoped — scoping only one causes cross-session interference (e.g. Session B's responses resetting Session A's idle timer).
 - Plain `echo` output from hooks is silently swallowed — hook output must be JSON `{"systemMessage": "..."}` to surface to the user.
 
 ## Sync Mechanism

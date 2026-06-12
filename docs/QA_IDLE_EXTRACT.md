@@ -87,12 +87,39 @@ Extract-facts does NOT run again within 30 minutes of the last run.
 
 ---
 
+## Test 5: Multiple sessions — each fires independently
+
+**Setup:**
+```bash
+rm -f /tmp/tm-activity-* /tmp/tm-extracted-ppid-* /tmp/tm-idle.log
+tail -f /tmp/tm-idle.log
+```
+
+**Steps:**
+1. Open Session A in one terminal, send a prompt, then stop typing
+2. Open Session B in another terminal within 10 seconds, send a prompt, keep Session B active
+3. Wait 45 seconds
+
+**Expected log (two different PPIDs):**
+```
+[team-memory] 10:40:01 [12345] hook started, waiting 45s...   ← Session A
+[team-memory] 10:40:03 [67890] hook started, waiting 45s...   ← Session B
+[team-memory] 10:40:46 [12345] idle + 30min — firing extract-facts  ← A fires ✅
+[team-memory] 10:40:48 [67890] skipping (active or ran within 30min, elapsed=0s)  ← B quiet ✅
+```
+
+Session A fires because it's idle. Session B skips because it's active. The sessions are fully isolated — Session B's activity does **not** prevent Session A from detecting its own idle.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Log file not created | Hook not installed | Run `team-memory join` or manually add to `~/.claude/settings.json` |
-| Always skipping (elapsed=0s) | `/tmp/tm-last-extracted` is stale | `rm /tmp/tm-last-extracted` |
+| Always skipping (elapsed=0s) | Stale cooldown file | `rm /tmp/tm-extracted-ppid-*` |
+| Session A never fires when Session B is active | Old version with global `/tmp/tm-last-activity` | Run `team-memory update` to get per-session activity file |
+| Log shows `[1234PPID]` instead of `[1234]` | `$$PPID` double-dollar bug in old hook | Run `team-memory update` to reinstall clean hook |
 | Fires every 45s repeatedly | `/tmp/tm-last-extracted` not being written | Check shell arithmetic syntax (`$((NOW - LAST))`) works on your shell |
 | asyncRewake fires but no extract-facts | `rewakeMessage` not reaching Claude | Check `asyncRewake: true` is set in settings |
 | Hook fires but `&` is in command | Old broken version | Re-run `team-memory join` to reinstall correct hook |
