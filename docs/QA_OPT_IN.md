@@ -2,6 +2,31 @@
 
 Assumes `TEAM_MEMORY_DIR` is set and `team-memory` is on PATH.
 
+## Prerequisites — GitHub access
+
+**Before a developer can push facts to the shared repo, they must be added as a collaborator or org member by the repo owner.**
+
+`team-memory join` clones the repo and sets up all local infrastructure. But `team-memory sync --push` (and any `git push` to the remote) requires write access on GitHub. Cloning a public repo does not grant push permission.
+
+**Repo owner runs once per new developer:**
+```bash
+# Add a specific collaborator
+gh api repos/<org>/<repo>/collaborators/<username> -X PUT -f permission=push
+
+# Or via GitHub UI:
+# Settings → Collaborators → Add people
+```
+
+**Symptom if missing:**
+```
+remote: Permission to <org>/<repo>.git denied to <username>.
+fatal: unable to access '...': The requested URL returned error: 403
+```
+
+**Until access is granted:** facts are committed locally in `facts-<dev>.db` and will sync automatically the next time `team-memory sync --push` succeeds. No facts are lost.
+
+---
+
 ---
 
 ## Test 1: Opt in a project

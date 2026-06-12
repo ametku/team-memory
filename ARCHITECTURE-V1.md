@@ -374,6 +374,19 @@ Reject path is symmetric: `team-memory reject f-X` → UPSERT into `interactions
 - **Batched commits** — surface-count UPSERTs accumulate during a session and commit once at session end, not per prompt.
 - **No auto-push** — developer pushes when ready.
 
+### GitHub access requirement
+
+`team-memory join` clones the repo and sets up all local infrastructure (per-dev DBs, merged index, hooks). However, **pushing facts requires write access on GitHub** — cloning a public repo does not grant push permission.
+
+Each new developer must be added as a collaborator or org member by the repo owner before `team-memory sync --push` will succeed:
+
+```bash
+# Repo owner adds a new developer
+gh api repos/<org>/<repo>/collaborators/<username> -X PUT -f permission=push
+```
+
+Until access is granted, facts accumulate in the developer's local `facts-<dev>.db` and sync automatically once write access is available. No facts are lost.
+
 ## Scope Boundaries
 
 ### V1 (Build Now)
