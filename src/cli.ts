@@ -40,7 +40,8 @@ Commands:
   extract-bg           Extract facts from Claude Code session files using NerdCompletion
   dashboard            Generate and open a static HTML fact browser
   opt-in               Opt the current project into team-memory fact extraction
-  update               Re-install hooks and skill, pull latest facts
+  update               Pull + rebuild CLI, refresh hooks/skill, sync facts
+                       Use --no-rebuild to skip git pull + build step
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -353,16 +354,30 @@ function main(): void {
   }
 
   if (command === "update") {
-    process.stdout.write(`Wiping all team-memory hooks from settings...\n`);
-    const result = updateInstallation();
-    process.stdout.write(`Hooks reinstalled (fresh) → ${result.settingsPath}\n`);
-    process.stdout.write(`Skill: ${result.skillUpdated ? "updated to latest" : "already current"}\n`);
-    if (result.pullWarning) {
-      process.stdout.write(`Warning: pull failed — ${result.pullWarning}\n`);
-    } else {
-      process.stdout.write(`Synced latest facts from team.\n`);
+    const noRebuild = commandArgs.includes("--no-rebuild");
+    if (!noRebuild) {
+      process.stdout.write(`Pulling latest CLI source and rebuilding...\n`);
     }
-    process.stdout.write(`Done. All settings are now at current version.\n`);
+    const result = updateInstallation({ noRebuild });
+    if (result.rebuilt) {
+      const same = result.versionBefore === result.versionAfter;
+      process.stdout.write(
+        same
+          ? `CLI rebuilt (v${result.versionAfter}, same version — settings refreshed)\n`
+          : `CLI upgraded: v${result.versionBefore} → v${result.versionAfter}\n`
+      );
+    } else if (result.rebuildWarning) {
+      process.stdout.write(`CLI rebuild: ${result.rebuildWarning}\n`);
+    }
+    process.stdout.write(`Wiping old hooks and reinstalling fresh...\n`);
+    process.stdout.write(`Hooks reinstalled → ${result.settingsPath}\n`);
+    process.stdout.write(`Skill: ${result.skillUpdated ? "updated" : "already current"}\n`);
+    if (result.pullWarning) {
+      process.stdout.write(`Warning: team sync failed — ${result.pullWarning}\n`);
+    } else {
+      process.stdout.write(`Team facts synced.\n`);
+    }
+    process.stdout.write(`Done.\n`);
     return;
   }
 
