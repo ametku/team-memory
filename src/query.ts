@@ -31,6 +31,9 @@ export function queryFacts(input: QueryFactsInput): QueryResult[] {
   const ftsQuery = rewriteQuery(query);
 
   try {
+    // bm25() returns negative values (more negative = better match).
+    // Multiplying by positive trust gives a more-negative product for high-trust
+    // good matches. Default ASC ordering puts most-negative (best) first.
     if (project) {
       return db.prepare(`
         SELECT id, content, project, tags, trust

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync } from "fs";
 import { join, basename, dirname } from "path";
 import { homedir, tmpdir } from "os";
 import { execSync } from "child_process";
@@ -43,12 +43,6 @@ function findJsonlFilesForEncodedPaths(encodedPaths: string[]): string[] {
     } catch { /* skip unreadable */ }
   }
   return files;
-}
-
-function deriveProject(jsonlPath: string): string {
-  // Match encoded path to known project paths
-  const encoded = basename(dirname(jsonlPath));
-  return encoded.split("-").at(-1) ?? "unknown";
 }
 
 function deriveProjectFromEncoded(jsonlPath: string, projectPaths: string[]): string {
@@ -215,9 +209,6 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
     const logLine = `[extract-bgc] ${new Date().toISOString()} done — ${totalFacts} fact(s) queued from ${toProcess.length} session(s)`;
     log(logLine.replace('[extract-bgc] ',''));
     try {
-      const { appendFileSync } = await import('fs');
-      const { join } = await import('path');
-      const { homedir } = await import('os');
       const logPath = process.env.TEAM_MEMORY_DIR
         ? join(process.env.TEAM_MEMORY_DIR, 'bgc.txt')
         : join(homedir(), '.team-memory', 'bgc.txt');

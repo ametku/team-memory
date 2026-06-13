@@ -15,12 +15,7 @@ export interface SyncResult {
 }
 
 export function syncRepo(input: SyncInput): SyncResult {
-  let pushed: boolean | undefined;
-  if (input.push) {
-    execFileSync("git", ["push", "origin", "HEAD"], { cwd: input.repoDir });
-    pushed = true;
-  }
-
+  // Pull first so local is up-to-date before pushing
   let pulled = true;
   let pullWarning: string | undefined;
 
@@ -29,6 +24,12 @@ export function syncRepo(input: SyncInput): SyncResult {
   } catch (e: any) {
     pulled = false;
     pullWarning = e.message ?? "git pull failed";
+  }
+
+  let pushed: boolean | undefined;
+  if (input.push) {
+    execFileSync("git", ["push", "origin", "HEAD"], { cwd: input.repoDir });
+    pushed = true;
   }
 
   const rebuildStats = rebuildIndex(input.repoDir, input.indexPath);

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { nanoid } from "nanoid";
 
 const PENDING_FILE = "pending-facts.json";
 
@@ -29,7 +30,7 @@ export function addPendingFacts(repoDir: string, project: string, facts: Omit<Pe
   for (const fact of facts) {
     store[project].push({
       ...fact,
-      id: Math.random().toString(36).slice(2, 10),
+      id: nanoid(8),
       extracted_at: new Date().toISOString(),
     });
   }

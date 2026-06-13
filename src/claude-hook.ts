@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, chmodSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { homedir } from "os";
@@ -168,14 +168,14 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   mkdirSync(hooksDir, { recursive: true });
   const scriptPath = idleHookScriptPath();
   writeFileSync(scriptPath, IDLE_SCRIPT_CONTENT);
-  try { const { chmodSync } = require("fs"); chmodSync(scriptPath, 0o755); } catch { /* ok */ }
+  try { chmodSync(scriptPath, 0o755); } catch { /* ok */ }
 
   (settings.hooks.Stop as ClaudeHookGroupExtended[]).push({
     hooks: [{
       type: "command",
       command: idleExtractCommand(),
       asyncRewake: true,
-      rewakeMessage: "Session idle for 45 seconds. Please run /extract-facts now to save any valuable insights from this session.",
+      rewakeMessage: "Session idle for 2 minutes. Please run /extract-facts now to save any valuable insights from this session.",
     }],
   });
 

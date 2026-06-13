@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { basename, dirname, join } from "path";
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { addFact } from "./add.js";
 import { rejectFact } from "./reject.js";
@@ -46,9 +47,9 @@ Commands:
   review-pending       Review facts queued by extract-bgc in current project
   dashboard            Generate and open a static HTML fact browser
   opt-in               Opt the current project into team-memory fact extraction
-update               Pull + rebuild CLI, refresh hooks/skill, sync facts
+  update               Pull + rebuild CLI, refresh hooks/skill, sync facts
                        Use --no-rebuild to skip git pull + build step
-extract-slack        Extract facts from Slack threads matching queued prompts
+  extract-slack        Extract facts from Slack threads matching queued prompts
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -107,7 +108,13 @@ function main(): void {
   }
 
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("0.1.0\n");
+    try {
+      const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      process.stdout.write(`${pkg.version ?? "unknown"}\n`);
+    } catch {
+      process.stdout.write("unknown\n");
+    }
     process.exit(0);
   }
 
@@ -242,8 +249,18 @@ function main(): void {
     try {
       const result = initRepo({ org, repo, dir });
       process.stdout.write(`Initialized ${org}/${repo} → ${result.repoDir}\n`);
-      process.stdout.write(`export TEAM_MEMORY_DIR=${result.repoDir}\n`);
-      process.stdout.write(`\nTo backfill facts from past Claude Code sessions, run:\n`);
+      process.stdout.write(`\nWhat was set up:\n`);
+      process.stdout.write(`  • Git repo: ${result.repoDir}\n`);
+      process.stdout.write(`  • Per-dev facts DB: ${result.setup.factsDbPath}\n`);
+      process.stdout.write(`  • Per-dev interactions DB: ${result.setup.interactionsDbPath}\n`);
+      process.stdout.write(`  • Merged index: ${result.setup.indexPath}\n`);
+      process.stdout.write(`  • Post-merge hook: ${result.setup.hookPath} (${result.setup.hookInstalled ? "installed" : "already present"})\n`);
+      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionEnd + Stop(idle)\n`);
+      process.stdout.write(`  • Skill: ~/.claude/skills/extract-facts/SKILL.md\n`);
+      process.stdout.write(`\nexport TEAM_MEMORY_DIR=${result.repoDir}\n`);
+      process.stdout.write(`\nTo backfill facts from past Claude Code sessions (no API key needed):\n`);
+      process.stdout.write(`  team-memory extract-bgc\n`);
+      process.stdout.write(`\nOr with NerdCompletion API:\n`);
       process.stdout.write(`  NERD_COMPLETION_API_KEY=<your-key> team-memory extract-bg\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
@@ -263,7 +280,17 @@ function main(): void {
     try {
       const result = joinRepo({ repoUrl: url, dir });
       process.stdout.write(`Joined ${url} → ${result.repoDir}\n`);
-      process.stdout.write(`\nTo backfill facts from past Claude Code sessions, run:\n`);
+      process.stdout.write(`\nWhat was set up:\n`);
+      process.stdout.write(`  • Git repo cloned: ${result.repoDir}\n`);
+      process.stdout.write(`  • Per-dev facts DB: ${result.setup.factsDbPath}\n`);
+      process.stdout.write(`  • Per-dev interactions DB: ${result.setup.interactionsDbPath}\n`);
+      process.stdout.write(`  • Merged index: ${result.setup.indexPath}\n`);
+      process.stdout.write(`  • Post-merge hook: ${result.setup.hookPath} (${result.setup.hookInstalled ? "installed" : "already present"})\n`);
+      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionEnd + Stop(idle)\n`);
+      process.stdout.write(`  • Skill: ~/.claude/skills/extract-facts/SKILL.md\n`);
+      process.stdout.write(`\nTo backfill facts from past Claude Code sessions (no API key needed):\n`);
+      process.stdout.write(`  team-memory extract-bgc\n`);
+      process.stdout.write(`\nOr with NerdCompletion API:\n`);
       process.stdout.write(`  NERD_COMPLETION_API_KEY=<your-key> team-memory extract-bg\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
@@ -467,7 +494,10 @@ function main(): void {
     }
     process.stdout.write(`Wiping old hooks and reinstalling fresh...\n`);
     process.stdout.write(`Hooks reinstalled → ${result.settingsPath}\n`);
-    process.stdout.write(`Skill: ${result.skillUpdated ? "updated" : "already current"}\n`);
+    process.stdout.write(`  • UserPromptSubmit: team-memory preprompt-hook\n`);
+    process.stdout.write(`  • SessionEnd: reminder to run /extract-facts\n`);
+    process.stdout.write(`  • Stop (idle): ~/.team-memory/hooks/idle.sh (2min idle, 10min cooldown)\n`);
+    process.stdout.write(`Skill: ${result.skillUpdated ? "updated → ~/.claude/skills/extract-facts/SKILL.md" : "already current"}\n`);
     if (result.pullWarning) {
       process.stdout.write(`Warning: team sync failed — ${result.pullWarning}\n`);
     } else {
