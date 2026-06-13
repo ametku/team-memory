@@ -24,17 +24,17 @@ const IDLE_EXTRACT_COMMAND =
   "TS=$(date +%s); " +
   "echo $TS > \"/tmp/tm-activity-$SPID\"; " +
   "SESSION_FLAG=\"/tmp/tm-extracted-ppid-$SPID\"; " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] hook started, waiting 45s...\" >> /tmp/tm-idle.log; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] hook started, waiting 45s...\" >> /tmp/tm-idle.txt; " +
   "sleep 45; " +
   "CURRENT=$(cat \"/tmp/tm-activity-$SPID\" 2>/dev/null); " +
   "LAST=$(cat \"$SESSION_FLAG\" 2>/dev/null || echo 0); " +
   "NOW=$(date +%s); " +
   "ELAPSED=$((NOW - LAST)); " +
   "if [ \"$CURRENT\" = \"$TS\" ] && [ $ELAPSED -ge 1800 ]; then " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] idle + 30min — firing extract-facts\" >> /tmp/tm-idle.log; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] idle + 30min — firing extract-facts\" >> /tmp/tm-idle.txt; " +
   "echo $NOW > \"$SESSION_FLAG\" && exit 2; " +
   "else " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.log; " +
+  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.txt; " +
   "fi; " +
   "exit 0";
 

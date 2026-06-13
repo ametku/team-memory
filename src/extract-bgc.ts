@@ -226,8 +226,8 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
       const { join } = await import('path');
       const { homedir } = await import('os');
       const logPath = process.env.TEAM_MEMORY_DIR
-        ? join(process.env.TEAM_MEMORY_DIR, 'bgc.log')
-        : join(homedir(), '.team-memory', 'bgc.log');
+        ? join(process.env.TEAM_MEMORY_DIR, 'bgc.txt')
+        : join(homedir(), '.team-memory', 'bgc.txt');
       appendFileSync(logPath, logLine + '\n');
     } catch { /* log file write is best-effort */ }
   }

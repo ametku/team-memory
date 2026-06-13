@@ -8,7 +8,7 @@ After every Claude response, a 45-second background timer starts. If no new resp
 
 Watch the log in real time to see every hook decision:
 ```bash
-tail -f /tmp/tm-idle.log
+tail -f /tmp/tm-idle.txt
 ```
 
 ---
@@ -32,14 +32,14 @@ python3 -m json.tool ~/.claude/settings.json | grep -A6 "asyncRewake"
 **Setup:**
 ```bash
 # Clear cooldown so 30-min check passes immediately
-rm -f /tmp/tm-last-extracted /tmp/tm-idle.log
+rm -f /tmp/tm-last-extracted /tmp/tm-idle.txt
 ```
 
 **Steps:**
 1. Open a Claude Code session: `claude`
 2. Send one prompt and wait for a response
 3. Wait 45 seconds without typing anything
-4. Watch the log: `tail -f /tmp/tm-idle.log`
+4. Watch the log: `tail -f /tmp/tm-idle.txt`
 
 **Expected log output:**
 ```
@@ -73,7 +73,7 @@ Extract-facts does NOT run while you are actively working.
 **Steps:**
 1. Clear only the old log, keep `/tmp/tm-last-extracted` intact from a recent run:
    ```bash
-   rm -f /tmp/tm-idle.log
+   rm -f /tmp/tm-idle.txt
    ```
 2. Open a Claude session, send a prompt, wait 45 seconds
 
@@ -91,8 +91,8 @@ Extract-facts does NOT run again within 30 minutes of the last run.
 
 **Setup:**
 ```bash
-rm -f /tmp/tm-activity-* /tmp/tm-extracted-ppid-* /tmp/tm-idle.log
-tail -f /tmp/tm-idle.log
+rm -f /tmp/tm-activity-* /tmp/tm-extracted-ppid-* /tmp/tm-idle.txt
+tail -f /tmp/tm-idle.txt
 ```
 
 **Steps:**

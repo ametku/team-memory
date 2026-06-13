@@ -393,7 +393,7 @@ After 45s:
 **Files used (all scoped to `$PPID` — fully isolated per session):**
 - `/tmp/tm-activity-$PPID` — last Claude response timestamp for THIS session only
 - `/tmp/tm-extracted-ppid-$PPID` — last extract-facts run for THIS session (30-min cooldown)
-- `/tmp/tm-idle.log` — global human-readable log of all hook decisions for debugging
+- `/tmp/tm-idle.txt` — global human-readable log of all hook decisions for debugging
 
 **Multi-session behaviour:**
 Each Claude Code session has a unique parent PID (`$PPID`). All state files are scoped to this PID so concurrent sessions never interfere — Session B being active does not prevent Session A from detecting its own idle and firing extract-facts.
