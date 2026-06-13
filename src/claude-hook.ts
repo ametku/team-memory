@@ -6,6 +6,10 @@ import { homedir } from "os";
 const PREPROMPT_COMMAND = "team-memory preprompt-hook";
 const SESSION_END_COMMAND =
   "echo '{\"systemMessage\": \"team-memory: run /extract-facts before quitting to save anything worth keeping.\"}'";
+// Marks session active + notifies pending facts (reads session_id from stdin JSON)
+const SESSION_START_COMMAND = "team-memory session-start";
+// Marks session inactive on end (reads session_id from stdin JSON)
+const SESSION_DEACTIVATE_COMMAND = "team-memory session-deactivate";
 
 const SKILL_NAME = "extract-facts";
 
@@ -53,9 +57,12 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   settings.hooks ??= {};
   settings.hooks.UserPromptSubmit ??= [];
   settings.hooks.SessionEnd ??= [];
+  if (!Array.isArray(settings.hooks.SessionStart)) settings.hooks.SessionStart = [];
 
-  const prepromptInstalled = ensureHook(settings.hooks.UserPromptSubmit, PREPROMPT_COMMAND);
-  const sessionEndInstalled = ensureHook(settings.hooks.SessionEnd, SESSION_END_COMMAND);
+  const prepromptInstalled = ensureHook(settings.hooks.UserPromptSubmit as ClaudeHookGroup[], PREPROMPT_COMMAND);
+  const sessionEndInstalled = ensureHook(settings.hooks.SessionEnd as ClaudeHookGroup[], SESSION_END_COMMAND);
+  ensureHook(settings.hooks.SessionStart as ClaudeHookGroup[], SESSION_START_COMMAND);
+  ensureHook(settings.hooks.SessionEnd as ClaudeHookGroup[], SESSION_DEACTIVATE_COMMAND);
 
   if (prepromptInstalled || sessionEndInstalled) {
     mkdirSync(dirname(settingsPath), { recursive: true });
