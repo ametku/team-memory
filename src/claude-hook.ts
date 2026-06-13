@@ -40,6 +40,7 @@ const IDLE_EXTRACT_COMMAND =
 
 const SKILL_NAME = "extract-facts";
 
+
 export interface InstallClaudeHookInput {
   settingsPath?: string;
 }
