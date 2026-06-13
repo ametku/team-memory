@@ -1,6 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
 import { resolve } from "node:path";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -22,7 +22,8 @@ describe("team-memory CLI", () => {
     const output = execFileSync("node", [CLI_PATH, "--version"], {
       encoding: "utf-8",
     });
-    expect(output.trim()).toBe("0.1.0");
+    const { version } = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8"));
+    expect(output.trim()).toBe(version);
   });
 
   it("exits with code 1 on unknown command", () => {

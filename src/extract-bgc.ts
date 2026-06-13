@@ -102,6 +102,29 @@ Return JSON only:
   ]
 }`;
 
+// claude --print runs with Bash tool access. When processing code-heavy sessions
+// (e.g. about this codebase), Claude sometimes executes code fragments as shell
+// commands to "verify" things, producing /bin/sh: ... errors on stdout that
+// precede the actual JSON response. Extract the last valid top-level JSON object
+// from the output so tool-execution noise before the response is ignored.
+function extractLastJson(output: string): string | null {
+  let depth = 0;
+  let start = -1;
+  let last: string | null = null;
+  for (let i = 0; i < output.length; i++) {
+    if (output[i] === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (output[i] === "}") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        last = output.slice(start, i + 1);
+      }
+    }
+  }
+  return last;
+}
+
 function extractFactsWithClaude(text: string): { content: string; tags: string[] }[] {
   // Write prompt to temp file to avoid shell arg length limits
   const tmpFile = join(tmpdir(), `tm-bgc-${Date.now()}.txt`);
@@ -112,7 +135,10 @@ function extractFactsWithClaude(text: string): { content: string; tags: string[]
       `cat ${JSON.stringify(tmpFile)} | claude --print 2>/dev/null`,
       { encoding: "utf-8", timeout: 120000 }
     );
-    const raw = result.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    // Strip markdown fences, then find the last JSON object in the output
+    // (tool-execution noise from claude appears before the actual response)
+    const stripped = result.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const raw = extractLastJson(stripped) ?? stripped;
     const obj = JSON.parse(raw);
     return Array.isArray(obj.facts) ? obj.facts : [];
   } catch { return []; }
