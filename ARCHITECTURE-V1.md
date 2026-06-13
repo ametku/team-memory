@@ -364,6 +364,64 @@ Reject path is symmetric: `team-memory reject f-X` → UPSERT into `interactions
 - MCP server optionally running locally.
 - Post-merge git hook installed in `~/.team-memory/.git/hooks/post-merge` to trigger `team-memory rebuild-index`.
 
+## extract-bgc — Claude-Native Background Fact Extraction
+
+**Purpose:** Extract facts from past completed sessions using Claude directly (no NerdCompletion key). Complements `/extract-facts` (which handles the current live session) by processing previously closed sessions.
+
+**How it fits alongside `/extract-facts`:**
+```
+/extract-facts (45s idle hook)  → CURRENT session, runs automatically
+extract-bgc (manual or /loop)   → PAST completed sessions only
+```
+
+**Usage:**
+```bash
+team-memory extract-bgc            # process past sessions
+team-memory extract-bgc --dry-run  # preview without writing
+/loop 30m team-memory extract-bgc  # keep running every 30 min
+! team-memory review-pending       # review queued facts in current project
+```
+
+**How it works:**
+1. Reads opted-in project registry — only processes sessions from opted-in repos
+2. Checks each session against two safety gates before processing
+3. Uses `claude --print` for extraction (Claude Code company auth, no API key needed)
+4. Queues extracted facts to `~/.team-memory/pending-facts.json` per project
+5. On next session start: notifies "N facts pending — run `! team-memory review-pending`"
+
+**Session safety — two gates (never touches an active session):**
+
+| Gate | Mechanism | Handles |
+|---|---|---|
+| 1 | `/tmp/tm-active-<uuid>` sentinel | Session actively running |
+| 2a | `/tmp/tm-done-<uuid>` clean-end marker | Clean exit via `/exit` — safe immediately |
+| 2b | File age ≥ 30 minutes | Crash/force-kill — wait before processing |
+
+- `SessionStart` hook creates the active sentinel
+- `SessionEnd` hook deletes sentinel and creates done marker
+- Done marker present → processed immediately (no age wait)
+- No done marker, no sentinel → possible crash → 30-min age required
+
+**Deduplication — no session processed twice:**
+- `processed-sessions-bgc.json` tracks all extract-bgc-processed session UUIDs
+- `SessionEnd` also marks session in `processed-sessions-bgc.json` so sessions handled by `/extract-facts` are never re-queued by extract-bgc
+- extract-bgc checks this file before processing any session
+
+**Pending facts queue (`pending-facts.json`):**
+```json
+{
+  "media-streaming-ui": [
+    { "id": "abc", "content": "...", "tags": [...], "session": "xyz.jsonl" }
+  ]
+}
+```
+Keyed by project — facts from `media-streaming-ui` only surface in `media-streaming-ui` sessions, never cross-project.
+
+**Decisions:**
+- `claude --print` over NerdCompletion: uses existing Claude Code company auth, no separate API key required
+- Manual/loop trigger over automatic spawning: simpler, predictable, no agent orchestration complexity
+- `/extract-facts` (idle hook) handles current session; extract-bgc handles past sessions — clear separation, no overlap
+
 ## Sync Mechanism
 
 - **Standard git push/pull** — no custom sync infra.
