@@ -96,12 +96,17 @@ describe("initRepo", () => {
     expect(cmd).toBe("team-memory preprompt-hook");
   });
 
-  test("installs SessionEnd hook and extract-facts skill", () => {
+  test("installs SessionStart, SessionEnd hooks and extract-facts skill", () => {
     const target = join(tmp, "with-skill");
     initRepo({ org: "o", repo: "r", dir: target }, createRepo);
 
     const settings = JSON.parse(readFileSync(makeClaudeSettingsPath(tmp), "utf-8"));
-    expect(settings.hooks.SessionEnd[0].hooks[0].command).toContain("/extract-facts");
+    // SessionStart → session-start
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe("team-memory session-start");
+    // SessionEnd → deactivate + reminder
+    const sessionEndCmds = settings.hooks.SessionEnd.map((g: any) => g.hooks[0].command);
+    expect(sessionEndCmds).toContain("team-memory session-deactivate");
+    expect(sessionEndCmds.some((c: string) => c.includes("/extract-facts"))).toBe(true);
 
     const skillPath = join(tmp, ".claude", "skills", "extract-facts", "SKILL.md");
     expect(existsSync(skillPath)).toBe(true);

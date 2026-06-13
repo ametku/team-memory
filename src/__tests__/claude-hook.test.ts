@@ -17,16 +17,24 @@ describe("installClaudeHook", () => {
     rmSync(tmp, { recursive: true });
   });
 
-  test("creates settings.json with both UserPromptSubmit and SessionEnd hooks when file does not exist", () => {
+  test("creates settings.json with all hooks when file does not exist", () => {
     const result = installClaudeHook({ settingsPath });
 
     expect(result.prepromptInstalled).toBe(true);
+    expect(result.sessionStartInstalled).toBe(true);
+    expect(result.sessionDeactivateInstalled).toBe(true);
     expect(result.sessionEndInstalled).toBe(true);
     expect(existsSync(settingsPath)).toBe(true);
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    // UserPromptSubmit → preprompt
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toBe("team-memory preprompt-hook");
-    expect(settings.hooks.SessionEnd[0].hooks[0].command).toContain("/extract-facts");
+    // SessionStart → session-start
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe("team-memory session-start");
+    // SessionEnd → deactivate first, then reminder
+    const sessionEndCmds = settings.hooks.SessionEnd.map((g: any) => g.hooks[0].command);
+    expect(sessionEndCmds).toContain("team-memory session-deactivate");
+    expect(sessionEndCmds.some((c: string) => c.includes("/extract-facts"))).toBe(true);
   });
 
   test("merges into existing settings.json without dropping unrelated keys", () => {
@@ -43,21 +51,25 @@ describe("installClaudeHook", () => {
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(settings.theme).toBe("dark");
-    expect(settings.hooks.SessionStart).toBeDefined();
+    // Non-team-memory SessionStart hook preserved
+    expect(settings.hooks.SessionStart.some((g: any) => g.hooks[0].command === "echo hi")).toBe(true);
     expect(settings.hooks.UserPromptSubmit).toBeDefined();
     expect(settings.hooks.SessionEnd).toBeDefined();
   });
 
-  test("is idempotent for both hook types", () => {
+  test("is idempotent — running twice produces no duplicate hooks", () => {
     installClaudeHook({ settingsPath });
     const result2 = installClaudeHook({ settingsPath });
 
     expect(result2.prepromptInstalled).toBe(false);
+    expect(result2.sessionStartInstalled).toBe(false);
+    expect(result2.sessionDeactivateInstalled).toBe(false);
     expect(result2.sessionEndInstalled).toBe(false);
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
-    expect(settings.hooks.SessionEnd).toHaveLength(1); // clean-replace: only current version
+    expect(settings.hooks.SessionStart).toHaveLength(1);
+    expect(settings.hooks.SessionEnd).toHaveLength(2); // deactivate + reminder
   });
 
   test("installs SessionEnd alongside a pre-existing UserPromptSubmit entry", () => {
@@ -71,6 +83,7 @@ describe("installClaudeHook", () => {
     const result = installClaudeHook({ settingsPath });
     expect(result.prepromptInstalled).toBe(false);
     expect(result.sessionEndInstalled).toBe(true);
+    expect(result.sessionDeactivateInstalled).toBe(true);
   });
 });
 

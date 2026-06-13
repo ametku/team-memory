@@ -4,8 +4,11 @@ import { fileURLToPath } from "url";
 import { homedir } from "os";
 
 const PREPROMPT_COMMAND = "team-memory preprompt-hook";
+const SESSION_START_COMMAND = "team-memory session-start";
+const SESSION_DEACTIVATE_COMMAND = "team-memory session-deactivate";
 const SESSION_END_COMMAND =
   "echo '{\"systemMessage\": \"team-memory: run /extract-facts before quitting to save anything worth keeping.\"}'";
+
 
 // Identifier prefix used in ALL team-memory hook commands.
 // wipeAllTeamMemoryHooks matches this to safely remove only our hooks.
@@ -72,6 +75,8 @@ export interface InstallClaudeHookInput {
 export interface InstallClaudeHookResult {
   settingsPath: string;
   prepromptInstalled: boolean;
+  sessionStartInstalled: boolean;
+  sessionDeactivateInstalled: boolean;
   sessionEndInstalled: boolean;
   idleExtractInstalled: boolean;
 }
@@ -99,6 +104,7 @@ interface ClaudeHookGroupExtended {
 interface ClaudeSettings {
   hooks?: {
     UserPromptSubmit?: ClaudeHookGroup[];
+    SessionStart?: ClaudeHookGroup[];
     SessionEnd?: ClaudeHookGroup[];
     Stop?: ClaudeHookGroupExtended[];
   } & Record<string, unknown>;
@@ -143,12 +149,17 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
 
   settings.hooks ??= {};
   settings.hooks.UserPromptSubmit ??= [];
+  settings.hooks.SessionStart ??= [];
   settings.hooks.SessionEnd ??= [];
   settings.hooks.Stop ??= [];
 
   // Track whether hooks were already at current version before wiping.
   const prepromptCurrent = (settings.hooks.UserPromptSubmit as ClaudeHookGroup[])
     .some((g) => g.hooks?.some((h) => h.command === PREPROMPT_COMMAND));
+  const sessionStartCurrent = (settings.hooks.SessionStart as ClaudeHookGroup[])
+    .some((g) => g.hooks?.some((h) => h.command === SESSION_START_COMMAND));
+  const sessionDeactivateCurrent = (settings.hooks.SessionEnd as ClaudeHookGroup[])
+    .some((g) => g.hooks?.some((h) => h.command === SESSION_DEACTIVATE_COMMAND));
   const sessionEndCurrent = (settings.hooks.SessionEnd as ClaudeHookGroup[])
     .some((g) => g.hooks?.some((h) => h.command === SESSION_END_COMMAND));
 
@@ -156,10 +167,17 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   wipeAllTeamMemoryHooks(settings);
 
   settings.hooks.UserPromptSubmit ??= [];
+  settings.hooks.SessionStart ??= [];
   settings.hooks.SessionEnd ??= [];
   if (!Array.isArray(settings.hooks.Stop)) settings.hooks.Stop = [];
 
   addHook(settings.hooks.UserPromptSubmit as ClaudeHookGroup[], { type: "command", command: PREPROMPT_COMMAND });
+
+  // SessionStart: mark session active (extract-bgc safety gate) + notify pending facts
+  addHook(settings.hooks.SessionStart as ClaudeHookGroup[], { type: "command", command: SESSION_START_COMMAND });
+
+  // SessionEnd: deactivate session (clean sentinel + mark processed) + remind about /extract-facts
+  addHook(settings.hooks.SessionEnd as ClaudeHookGroup[], { type: "command", command: SESSION_DEACTIVATE_COMMAND });
   addHook(settings.hooks.SessionEnd as ClaudeHookGroup[], { type: "command", command: SESSION_END_COMMAND });
 
   // Write the idle script to ~/.team-memory/hooks/idle.sh
@@ -185,6 +203,8 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   return {
     settingsPath,
     prepromptInstalled: !prepromptCurrent,
+    sessionStartInstalled: !sessionStartCurrent,
+    sessionDeactivateInstalled: !sessionDeactivateCurrent,
     sessionEndInstalled: !sessionEndCurrent,
     idleExtractInstalled: true,
   };

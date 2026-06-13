@@ -20,14 +20,15 @@ describe("installClaudeHook — clean replace", () => {
   afterEach(() => { rmSync(settingsDir, { recursive: true }); });
 
   it("installs hooks on fresh settings", () => {
-    const result = installClaudeHook({ settingsPath });
+    installClaudeHook({ settingsPath });
     const s = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(s.hooks.UserPromptSubmit).toHaveLength(1);
-    expect(s.hooks.SessionEnd).toHaveLength(1);
+    expect(s.hooks.SessionStart).toHaveLength(1);
+    expect(s.hooks.SessionEnd).toHaveLength(2); // deactivate + reminder
   });
 
   it("replaces stale team-memory hook without duplicating", () => {
-    // Install old version
+    // Install old version (v0.1.0 shape — only UserPromptSubmit + SessionEnd)
     const oldSettings = {
       hooks: {
         UserPromptSubmit: [{ hooks: [{ type: "command", command: "team-memory old-preprompt" }] }],
@@ -40,12 +41,14 @@ describe("installClaudeHook — clean replace", () => {
     installClaudeHook({ settingsPath });
 
     const s = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    // Should have exactly 1 entry each — old removed, new added
+    // Old team-memory hooks removed, new ones added
     expect(s.hooks.UserPromptSubmit).toHaveLength(1);
-    expect(s.hooks.SessionEnd).toHaveLength(1);
-    // New commands should be current versions
+    expect(s.hooks.SessionStart).toHaveLength(1);
+    expect(s.hooks.SessionEnd).toHaveLength(2); // deactivate + reminder
     expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toBe("team-memory preprompt-hook");
-    expect(s.hooks.SessionEnd[0].hooks[0].command).toContain("systemMessage");
+    expect(s.hooks.SessionStart[0].hooks[0].command).toBe("team-memory session-start");
+    const sessionEndCmds = s.hooks.SessionEnd.map((g: any) => g.hooks[0].command);
+    expect(sessionEndCmds).toContain("team-memory session-deactivate");
   });
 
   it("preserves non-team-memory hooks", () => {
@@ -60,9 +63,9 @@ describe("installClaudeHook — clean replace", () => {
     installClaudeHook({ settingsPath });
 
     const s = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    // Other tool preserved + team-memory added = 2 each
-    expect(s.hooks.UserPromptSubmit).toHaveLength(2);
-    expect(s.hooks.SessionEnd).toHaveLength(2);
+    // Other tools preserved + team-memory added
+    expect(s.hooks.UserPromptSubmit).toHaveLength(2); // my-other-tool + preprompt
+    expect(s.hooks.SessionEnd).toHaveLength(3);       // my-other-tool + deactivate + reminder
     expect(s.hooks.UserPromptSubmit.some((g: any) => g.hooks[0].command === "my-other-tool hook")).toBe(true);
     expect(s.hooks.UserPromptSubmit.some((g: any) => g.hooks[0].command === "team-memory preprompt-hook")).toBe(true);
   });
@@ -72,7 +75,8 @@ describe("installClaudeHook — clean replace", () => {
     installClaudeHook({ settingsPath });
     const s = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(s.hooks.UserPromptSubmit).toHaveLength(1);
-    expect(s.hooks.SessionEnd).toHaveLength(1);
+    expect(s.hooks.SessionStart).toHaveLength(1);
+    expect(s.hooks.SessionEnd).toHaveLength(2); // deactivate + reminder, not 4
   });
 });
 
