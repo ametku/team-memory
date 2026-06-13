@@ -2,44 +2,56 @@ import { existsSync, statSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join, basename } from "path";
 
 const SENTINEL_DIR = "/tmp";
-const SENTINEL_PREFIX = "tm-active-";
-const STALE_HOURS = 4;
-const SAFE_AGE_MINUTES = 30;
+const ACTIVE_PREFIX = "tm-active-";    // session is running right now
+const DONE_PREFIX   = "tm-done-";      // session ended cleanly via SessionEnd
+const STALE_HOURS = 4;                 // active sentinel older than this → treat as stale (crash)
+const CRASH_SAFE_MINUTES = 30;         // no clean-end marker → wait this long before processing
 
 export function markSessionActive(sessionId: string): void {
-  try {
-    writeFileSync(join(SENTINEL_DIR, `${SENTINEL_PREFIX}${sessionId}`), "");
-  } catch { /* /tmp not writable */ }
+  try { writeFileSync(join(SENTINEL_DIR, `${ACTIVE_PREFIX}${sessionId}`), ""); } catch { /* ok */ }
 }
 
-export function markSessionInactive(sessionId: string): void {
-  try { rmSync(join(SENTINEL_DIR, `${SENTINEL_PREFIX}${sessionId}`)); } catch { /* already gone */ }
+export function markSessionCleanEnd(sessionId: string): void {
+  // SessionEnd fired cleanly — safe to process immediately, no age check needed
+  try {
+    rmSync(join(SENTINEL_DIR, `${ACTIVE_PREFIX}${sessionId}`));
+  } catch { /* already gone */ }
+  try { writeFileSync(join(SENTINEL_DIR, `${DONE_PREFIX}${sessionId}`), ""); } catch { /* ok */ }
 }
 
-function isSentinelStale(sentinelPath: string): boolean {
-  try {
-    return (Date.now() - statSync(sentinelPath).mtimeMs) / 3600000 > STALE_HOURS;
-  } catch { return true; }
+function isSentinelStale(path: string): boolean {
+  try { return (Date.now() - statSync(path).mtimeMs) / 3600000 > STALE_HOURS; } catch { return true; }
 }
 
 export function isSessionActive(sessionId: string): boolean {
-  const p = join(SENTINEL_DIR, `${SENTINEL_PREFIX}${sessionId}`);
+  const p = join(SENTINEL_DIR, `${ACTIVE_PREFIX}${sessionId}`);
   if (!existsSync(p)) return false;
   if (isSentinelStale(p)) { try { rmSync(p); } catch { /* ok */ } return false; }
   return true;
 }
 
 export function isSessionSafe(jsonlPath: string): boolean {
-  if (isSessionActive(basename(jsonlPath, ".jsonl"))) return false;
+  const sessionId = basename(jsonlPath, ".jsonl");
+
+  // Gate 1: session is actively running
+  if (isSessionActive(sessionId)) return false;
+
+  // Gate 2a: clean-end marker exists → SessionEnd fired → safe immediately
+  if (existsSync(join(SENTINEL_DIR, `${DONE_PREFIX}${sessionId}`))) return true;
+
+  // Gate 2b: no clean-end marker → possible crash → require 30-min age as safety net
   try {
-    return (Date.now() - statSync(jsonlPath).mtimeMs) / 60000 >= SAFE_AGE_MINUTES;
+    return (Date.now() - statSync(jsonlPath).mtimeMs) / 60000 >= CRASH_SAFE_MINUTES;
   } catch { return false; }
 }
 
 export function cleanStaleSentinels(): void {
   try {
     readdirSync(SENTINEL_DIR)
-      .filter(f => f.startsWith(SENTINEL_PREFIX))
-      .forEach(f => { if (isSentinelStale(join(SENTINEL_DIR, f))) try { rmSync(join(SENTINEL_DIR, f)); } catch { /* ok */ } });
+      .filter(f => f.startsWith(ACTIVE_PREFIX) || f.startsWith(DONE_PREFIX))
+      .forEach(f => {
+        const p = join(SENTINEL_DIR, f);
+        if (isSentinelStale(p)) try { rmSync(p); } catch { /* ok */ }
+      });
   } catch { /* /tmp inaccessible */ }
 }

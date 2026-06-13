@@ -20,7 +20,7 @@ import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
 import { runExtractBgc } from "./extract-bgc.js";
 import { getPendingFacts, removePendingFacts, markSessionHandledByExtractFacts } from "./pending-facts.js";
-import { markSessionActive, markSessionInactive } from "./active-sessions.js";
+import { markSessionActive, markSessionCleanEnd } from "./active-sessions.js";
 import { generateDashboard } from "./dashboard.js";
 import { createOptInMarker, registerProject, isOptedIn } from "./opt-in.js";
 
@@ -423,7 +423,7 @@ function main(): void {
         const payload = JSON.parse(raw);
         const sessionId = payload.session_id ?? "";
         if (sessionId) {
-          markSessionInactive(sessionId);
+          markSessionCleanEnd(sessionId);
           const repoDir = resolveRepoDir();
           // already imported at top
           markSessionHandledByExtractFacts(repoDir, sessionId);
