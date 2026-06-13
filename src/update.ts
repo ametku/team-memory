@@ -99,6 +99,7 @@ export function updateInstallation({ noRebuild = false } = {}): UpdateResult {
   try {
     const skillResult = installClaudeSkill({
       skillsDir: process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR,
+      force: true,
     });
     skillUpdated = skillResult.installed;
   } catch { /* skill source not present */ }

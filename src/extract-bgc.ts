@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { join, basename, dirname } from "path";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { execSync } from "child_process";
 import { resolveRepoDir } from "./repo.js";
 import { getOptedInEncodedPaths, getOptedInProjects } from "./opt-in.js";
@@ -109,28 +109,21 @@ Return JSON only:
 }`;
 
 function extractFactsWithClaude(text: string): { content: string; tags: string[] }[] {
+  // Write prompt to temp file to avoid shell arg length limits
+  const tmpFile = join(tmpdir(), `tm-bgc-${Date.now()}.txt`);
   try {
     const prompt = `${SYSTEM_PROMPT}\n\n---\n${text}`;
+    writeFileSync(tmpFile, prompt, "utf-8");
     const result = execSync(
-      `echo ${JSON.stringify(prompt)} | claude --print --output-format json 2>/dev/null`,
+      `cat ${JSON.stringify(tmpFile)} | claude --print 2>/dev/null`,
       { encoding: "utf-8", timeout: 120000 }
     );
-    const parsed = JSON.parse(result.trim());
-    // claude --print --output-format json returns { "result": "..." }
-    const raw = (parsed.result ?? result).replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const raw = result.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
     const obj = JSON.parse(raw);
     return Array.isArray(obj.facts) ? obj.facts : [];
-  } catch {
-    // Fallback: try plain claude --print
-    try {
-      const result = execSync(
-        `echo ${JSON.stringify(`${SYSTEM_PROMPT}\n\n---\n${text}`)} | claude --print 2>/dev/null`,
-        { encoding: "utf-8", timeout: 120000 }
-      );
-      const raw = result.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "");
-      const obj = JSON.parse(raw);
-      return Array.isArray(obj.facts) ? obj.facts : [];
-    } catch { return []; }
+  } catch { return []; }
+  finally {
+    try { rmSync(tmpFile); } catch { /* ok */ }
   }
 }
 

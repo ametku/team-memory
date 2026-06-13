@@ -158,6 +158,7 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
 export interface InstallClaudeSkillInput {
   skillsDir?: string;
   sourcePath?: string;
+  force?: boolean;  // always overwrite even if content is identical (used by `update`)
 }
 
 export interface InstallClaudeSkillResult {
@@ -182,7 +183,7 @@ export function installClaudeSkill(input: InstallClaudeSkillInput = {}): Install
 
   mkdirSync(destDir, { recursive: true });
 
-  if (existsSync(destPath) && readFileSync(destPath, "utf-8") === readFileSync(sourcePath, "utf-8")) {
+  if (!input.force && existsSync(destPath) && readFileSync(destPath, "utf-8") === readFileSync(sourcePath, "utf-8")) {
     return { destPath, installed: false };
   }
 
