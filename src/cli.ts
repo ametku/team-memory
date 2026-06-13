@@ -255,7 +255,7 @@ function main(): void {
       process.stdout.write(`  • Per-dev interactions DB: ${result.setup.interactionsDbPath}\n`);
       process.stdout.write(`  • Merged index: ${result.setup.indexPath}\n`);
       process.stdout.write(`  • Post-merge hook: ${result.setup.hookPath} (${result.setup.hookInstalled ? "installed" : "already present"})\n`);
-      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionEnd + Stop(idle)\n`);
+      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionStart + SessionEnd + Stop(idle)\n`);
       process.stdout.write(`  • Skill: ~/.claude/skills/extract-facts/SKILL.md\n`);
       process.stdout.write(`\nexport TEAM_MEMORY_DIR=${result.repoDir}\n`);
       process.stdout.write(`\nTo backfill facts from past Claude Code sessions (no API key needed):\n`);
@@ -286,7 +286,7 @@ function main(): void {
       process.stdout.write(`  • Per-dev interactions DB: ${result.setup.interactionsDbPath}\n`);
       process.stdout.write(`  • Merged index: ${result.setup.indexPath}\n`);
       process.stdout.write(`  • Post-merge hook: ${result.setup.hookPath} (${result.setup.hookInstalled ? "installed" : "already present"})\n`);
-      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionEnd + Stop(idle)\n`);
+      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionStart + SessionEnd + Stop(idle)\n`);
       process.stdout.write(`  • Skill: ~/.claude/skills/extract-facts/SKILL.md\n`);
       process.stdout.write(`\nTo backfill facts from past Claude Code sessions (no API key needed):\n`);
       process.stdout.write(`  team-memory extract-bgc\n`);
@@ -495,7 +495,8 @@ function main(): void {
     process.stdout.write(`Wiping old hooks and reinstalling fresh...\n`);
     process.stdout.write(`Hooks reinstalled → ${result.settingsPath}\n`);
     process.stdout.write(`  • UserPromptSubmit: team-memory preprompt-hook\n`);
-    process.stdout.write(`  • SessionEnd: reminder to run /extract-facts\n`);
+    process.stdout.write(`  • SessionStart: team-memory session-start\n`);
+    process.stdout.write(`  • SessionEnd: team-memory session-deactivate + /extract-facts reminder\n`);
     process.stdout.write(`  • Stop (idle): ~/.team-memory/hooks/idle.sh (2min idle, 10min cooldown)\n`);
     process.stdout.write(`Skill: ${result.skillUpdated ? "updated → ~/.claude/skills/extract-facts/SKILL.md" : "already current"}\n`);
     if (result.pullWarning) {
