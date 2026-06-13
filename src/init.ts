@@ -6,6 +6,7 @@ import { assertDirNotExists, postCloneSetup, PostCloneSetupResult } from "./setu
 import { getDeveloperName } from "./developer.js";
 import { installClaudeHook, installClaudeSkill } from "./claude-hook.js";
 import { createOptInMarker, registerProject } from "./opt-in.js";
+import { saveCliSource } from "./update.js";
 
 export interface InitInput {
   org: string;
@@ -55,6 +56,7 @@ export function initRepo(input: InitInput, createRepo: RepoCreator = ghRepoCreat
 
   installClaudeHook({ settingsPath: process.env.TEAM_MEMORY_CLAUDE_SETTINGS });
   installClaudeSkill({ skillsDir: process.env.TEAM_MEMORY_CLAUDE_SKILLS_DIR });
+  saveCliSource(repoDir);
 
   try {
     const projectRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim();
