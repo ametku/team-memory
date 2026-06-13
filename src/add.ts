@@ -1,5 +1,5 @@
 import { join } from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { openFactsDb, insertFact } from "./facts-db.js";
 import type { Fact } from "./types.js";
 
@@ -25,8 +25,8 @@ export function addFact(input: AddFactInput): Fact {
   db.close();
 
   const dbFile = join("facts", `facts-${input.developer}.db`);
-  execSync(`git add "${dbFile}"`, { cwd: input.repoDir });
-  execSync(`git commit -m "feat: add fact ${fact.id}"`, { cwd: input.repoDir });
+  execFileSync("git", ["add", dbFile], { cwd: input.repoDir });
+  execFileSync("git", ["commit", "-m", `feat: add fact ${fact.id}`], { cwd: input.repoDir });
 
   return fact;
 }

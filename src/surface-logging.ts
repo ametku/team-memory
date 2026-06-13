@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 import { openInteractionsDb } from "./interactions-db.js";
@@ -35,9 +35,9 @@ export function commitInteractions(dir: string, developer: string): void {
   db.exec("VACUUM");
   db.close();
 
-  execSync(`git add ${dbFile}`, { cwd: dir });
-  const status = execSync("git status --porcelain", { cwd: dir, encoding: "utf-8" });
+  execFileSync("git", ["add", dbFile], { cwd: dir });
+  const status = execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf-8" });
   if (status.trim()) {
-    execSync('git commit -m "chore: update interactions"', { cwd: dir });
+    execFileSync("git", ["commit", "-m", "chore: update interactions"], { cwd: dir });
   }
 }

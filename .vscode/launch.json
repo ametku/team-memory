@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: CLI command",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/dist/cli.js",
+      "args": ["${input:cliCommand}"],
+      "env": {
+        "TEAM_MEMORY_DIR": "${env:HOME}/.team-memory-test",
+        "TEAM_MEMORY_DEVELOPER": "mavinash"
+      },
+      "console": "integratedTerminal",
+      "preLaunchTask": "Build"
+    },
+    {
+      "name": "Debug: query",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/dist/cli.js",
+      "args": ["query", "config"],
+      "env": {
+        "TEAM_MEMORY_DIR": "${env:HOME}/.team-memory-test",
+        "TEAM_MEMORY_DEVELOPER": "mavinash"
+      },
+      "console": "integratedTerminal",
+      "preLaunchTask": "Build"
+    },
+    {
+      "name": "Debug: Current Test File",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+      "args": ["run", "${relativeFile}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "cliCommand",
+      "type": "promptString",
+      "description": "CLI subcommand + args (e.g. query config)"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "vitest.explorer",
+    "ms-vscode.vscode-typescript-next",
+    "alexiv.vscode-vitest",
+    "GitHub.vscode-pull-request-github"
+  ]
+}

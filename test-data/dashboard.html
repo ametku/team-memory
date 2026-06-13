@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>team-memory · Knowledge Galaxy</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#06090C;font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#E3EDFC}
+#stars-canvas{position:fixed;inset:0;pointer-events:none;z-index:0}
+#galaxy-svg{position:fixed;inset:0;z-index:1;cursor:grab}
+#galaxy-svg:active{cursor:grabbing}
+/* HUD overlays */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+#search-wrap{position:absolute;top:16px;left:50%;transform:translateX(-50%);pointer-events:all;width:min(520px,90vw)}
+#search-box{width:100%;padding:10px 16px 10px 42px;background:rgba(10,14,18,0.85);border:1px solid #3D4F61;border-radius:24px;color:#E3EDFC;font-size:15px;outline:none;backdrop-filter:blur(12px);transition:border-color .2s,box-shadow .2s}
+#search-box:focus{border-color:#00AC69;box-shadow:0 0 0 3px rgba(0,172,105,.18)}
+#search-box::placeholder{color:#8FADC7}
+#search-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#8FADC7;pointer-events:none}
+#search-results{position:absolute;top:calc(100% + 6px);width:100%;background:rgba(10,14,18,.95);border:1px solid #3D4F61;border-radius:12px;backdrop-filter:blur(16px);overflow:hidden;display:none}
+.sr-item{padding:10px 16px;cursor:pointer;border-bottom:1px solid rgba(61,79,97,.4);font-size:13px;transition:background .15s}
+.sr-item:last-child{border-bottom:none}
+.sr-item:hover,.sr-item.active{background:rgba(0,172,105,.1)}
+.sr-content{color:#E3EDFC;font-weight:500}
+.sr-meta{color:#8FADC7;font-size:11px;margin-top:2px}
+/* Top-left brand */
+#brand{position:absolute;top:18px;left:20px;pointer-events:all;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#00AC69;letter-spacing:.03em}
+#brand::before{content:'';width:10px;height:10px;background:#00AC69;border-radius:2px;display:inline-block}
+#stats-bar{font-size:11px;color:#8FADC7;font-weight:400;margin-left:4px}
+/* Controls top-right */
+#controls{position:absolute;top:14px;right:16px;pointer-events:all;display:flex;gap:8px;align-items:center}
+.ctrl-btn{padding:6px 12px;background:rgba(10,14,18,.8);border:1px solid #3D4F61;border-radius:6px;color:#8FADC7;font-size:12px;cursor:pointer;transition:all .15s;backdrop-filter:blur(8px)}
+.ctrl-btn:hover,.ctrl-btn.active{background:rgba(0,172,105,.15);border-color:#00AC69;color:#00AC69}
+/* Zoom level indicator */
+#zoom-level{position:absolute;bottom:20px;left:20px;pointer-events:none;font-size:11px;color:#8FADC7;background:rgba(10,14,18,.7);padding:4px 10px;border-radius:4px;border:1px solid rgba(61,79,97,.4)}
+/* Minimap */
+#minimap{position:absolute;bottom:20px;right:20px;pointer-events:all;width:160px;height:100px;background:rgba(10,14,18,.85);border:1px solid #3D4F61;border-radius:8px;overflow:hidden;backdrop-filter:blur(8px)}
+#minimap-canvas{width:100%;height:100%;display:block}
+#minimap-label{position:absolute;bottom:4px;left:8px;font-size:9px;color:#8FADC7;pointer-events:none}
+/* Fact card panel */
+#fact-panel{position:absolute;right:20px;top:60px;width:320px;pointer-events:all;background:rgba(10,14,18,.92);border:1px solid #00AC69;border-radius:12px;padding:20px;backdrop-filter:blur(16px);display:none;max-height:calc(100vh - 140px);overflow-y:auto}
+#fact-panel .fp-close{position:absolute;top:12px;right:14px;cursor:pointer;color:#8FADC7;font-size:18px;line-height:1;background:none;border:none;padding:0}
+#fact-panel .fp-close:hover{color:#E3EDFC}
+.fp-content{font-size:15px;font-weight:500;line-height:1.6;color:#E3EDFC;margin-bottom:14px}
+.fp-row{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px}
+.fp-label{color:#8FADC7}
+.fp-value{color:#E3EDFC;text-align:right;max-width:60%}
+.fp-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.fp-tag{font-size:11px;padding:2px 8px;border-radius:10px;cursor:pointer;border:1px solid #3D4F61;color:#8FADC7;background:#1D252C;transition:all .15s}
+.fp-tag:hover{background:#00AC69;color:#fff;border-color:#00AC69}
+.fp-tag.cat{background:rgba(255,210,61,.08);border-color:rgba(255,210,61,.3);color:#FFD23D}
+.fp-trust-bar{height:4px;background:#1D252C;border-radius:2px;margin-top:4px}
+.fp-trust-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#00AC69,#40E0A0);transition:width .5s ease}
+.fp-rcmd{font-family:monospace;font-size:12px;background:#1D252C;color:#00AC69;padding:6px 10px;border-radius:4px;border:1px solid #3D4F61;cursor:pointer;display:block;margin-top:12px;transition:all .15s}
+.fp-rcmd:hover{border-color:#DF2D24;color:#DF2D24}
+/* Legend */
+#legend{position:absolute;bottom:60px;right:20px;pointer-events:all;background:rgba(10,14,18,.8);border:1px solid #3D4F61;border-radius:8px;padding:10px 14px;font-size:11px;backdrop-filter:blur(8px);display:none}
+.leg-item{display:flex;align-items:center;gap:6px;margin-bottom:4px;color:#8FADC7}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+/* Keyboard hint */
+#kbd-hint{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(143,173,199,.5);pointer-events:none;white-space:nowrap}
+/* Node glow filter defined in SVG defs */
+.node-circle{transition:r .3s ease}
+.link-line{pointer-events:none}
+.resonance-line{pointer-events:none}
+/* Pulse keyframes */
+@keyframes pulse-fast{0%,100%{opacity:.7}50%{opacity:1}}
+@keyframes pulse-med{0%,100%{opacity:.5}50%{opacity:.9}}
+@keyframes pulse-slow{0%,100%{opacity:.3}50%{opacity:.7}}
+</style>
+</head>
+<body>
+<canvas id="stars-canvas"></canvas>
+<svg id="galaxy-svg"></svg>
+<div id="hud">
+  <div id="brand">team-memory <span id="stats-bar">loading...</span></div>
+  <div id="search-wrap">
+    <span id="search-icon">⌕</span>
+    <input id="search-box" placeholder="Search facts, tags, authors… (/ or ⌘K)" autocomplete="off" spellcheck="false">
+    <div id="search-results"></div>
+  </div>
+  <div id="controls">
+    <button class="ctrl-btn active" id="btn-aerial" title="Aerial view">⊙ Aerial</button>
+    <button class="ctrl-btn" id="btn-ground" title="Ground view">◉ Ground</button>
+    <button class="ctrl-btn" id="btn-roots" title="Roots view">⬡ Roots</button>
+    <button class="ctrl-btn" id="btn-legend" title="Toggle legend">◈ Legend</button>
+    <button class="ctrl-btn" id="btn-heat" title="Toggle heat map">⬥ Heat</button>
+  </div>
+  <div id="zoom-level">aerial · scroll to explore</div>
+  <div id="minimap"><canvas id="minimap-canvas"></canvas><div id="minimap-label">overview</div></div>
+  <div id="fact-panel"><button class="fp-close" id="fp-close">×</button><div id="fp-body"></div></div>
+  <div id="legend"></div>
+  <div id="kbd-hint">/ search · scroll zoom · drag pan · click fact · esc close</div>
+</div>
+<script id="__data__" type="application/json">{"facts":[],"authors":[],"tagIndex":[],"tagCooccurrence":{},"generatedAt":"2026-06-13T12:11:28.244Z"}</script>
+<script>
+(function(){
+'use strict';
+
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const raw = JSON.parse(document.getElementById('__data__').textContent);
+const facts = raw.facts;
+const authors = raw.authors;
+const tagIndex = raw.tagIndex;
+const tagCooc = raw.tagCooccurrence;
+const generatedAt = raw.generatedAt;
+
+// ── COLONY COLORS (per author) ────────────────────────────────────────────────
+const PALETTE = ['#00AC69','#009BEF','#FFD23D','#FF6B9D','#C792EA','#89DDFF','#F78C6C','#ADDB67','#80CBC4','#FF5370'];
+const authorColor = {};
+authors.forEach((a,i) => authorColor[a] = PALETTE[i % PALETTE.length]);
+
+// ── CATEGORY COLORS ───────────────────────────────────────────────────────────
+const CAT_COLOR = {'gotcha':'#FF5370','convention':'#00AC69','tool':'#89DDFF','workaround':'#FFD23D','decision':'#C792EA'};
+function catColor(tags){
+  for(const t of tags){ const m=t.match(/^category:(.+)$/); if(m) return CAT_COLOR[m[1]]||'#00AC69'; }
+  return '#00AC69';
+}
+
+// ── STARS CANVAS ─────────────────────────────────────────────────────────────
+const starsCanvas = document.getElementById('stars-canvas');
+const starsCtx = starsCanvas.getContext('2d');
+let stars=[], mouse={x:0,y:0};
+function initStars(){
+  starsCanvas.width=window.innerWidth; starsCanvas.height=window.innerHeight;
+  stars=[];
+  for(let i=0;i<280;i++) stars.push({x:Math.random()*starsCanvas.width,y:Math.random()*starsCanvas.height,r:Math.random()*1.2+.2,a:Math.random(),da:(.0003+Math.random()*.0007)*(Math.random()<.5?1:-1),layer:Math.floor(Math.random()*3)+1});
+}
+function drawStars(){
+  starsCtx.clearRect(0,0,starsCanvas.width,starsCanvas.height);
+  const mx=mouse.x/starsCanvas.width-.5, my=mouse.y/starsCanvas.height-.5;
+  for(const s of stars){
+    s.a+=s.da; if(s.a<0||s.a>1) s.da*=-1;
+    const px=s.x+mx*s.layer*8, py=s.y+my*s.layer*8;
+    starsCtx.beginPath(); starsCtx.arc(px,py,s.r,0,Math.PI*2);
+    starsCtx.fillStyle='rgba(255,255,255,'+(.15+s.a*.5)+')'; starsCtx.fill();
+  }
+  requestAnimationFrame(drawStars);
+}
+initStars(); drawStars();
+document.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY});
+window.addEventListener('resize',initStars);
+
+// ── D3 SETUP ──────────────────────────────────────────────────────────────────
+const W=window.innerWidth, H=window.innerHeight;
+const svg = d3.select('#galaxy-svg').attr('width',W).attr('height',H);
+
+// Defs: glow filters
+const defs = svg.append('defs');
+['low','mid','high'].forEach((lvl,i)=>{
+  const f=defs.append('filter').attr('id','glow-'+lvl).attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+  const sd=[3,6,12][i];
+  f.append('feGaussianBlur').attr('stdDeviation',sd).attr('result','blur');
+  const m=f.append('feMerge'); m.append('feMergeNode').attr('in','blur'); m.append('feMergeNode').attr('in','SourceGraphic');
+});
+// Nebula gradient
+const ng=defs.append('radialGradient').attr('id','nebula');
+ng.append('stop').attr('offset','0%').attr('stop-color','#00AC69').attr('stop-opacity',.06);
+ng.append('stop').attr('offset','100%').attr('stop-color','#00AC69').attr('stop-opacity',0);
+
+const g = svg.append('g').attr('id','root');
+const gLinks=g.append('g').attr('id','links');
+const gResonance=g.append('g').attr('id','resonance');
+const gNodes=g.append('g').attr('id','nodes');
+
+// ── BUILD GRAPH DATA ──────────────────────────────────────────────────────────
+const nodeMap={};
+const nodes = facts.map(f=>({
+  id:f.id, content:f.content, tags:f.tags, trust:f.trust,
+  author:f.author, project:f.project, created_at:f.created_at,
+  surface_count:f.surface_count, last_surfaced_at:f.last_surfaced_at,
+  reject_count:f.reject_count,
+  r: 5 + Math.log1p(f.surface_count)*2 + f.trust*4,
+  col: authorColor[f.author]||'#00AC69',
+  catCol: catColor(f.tags),
+  glowLvl: f.trust>0.85?'high':f.trust>0.5?'mid':'low',
+  pulseClass: f.trust>0.75?'pulse-fast':f.trust>0.4?'pulse-med':'pulse-slow'
+}));
+nodes.forEach(n=>nodeMap[n.id]=n);
+
+// Tag-based links
+const linkSet=new Set();
+const links=[];
+const tagFacts={};
+facts.forEach(f=>f.tags.forEach(t=>{(tagFacts[t]=tagFacts[t]||[]).push(f.id)}));
+Object.values(tagFacts).forEach(ids=>{
+  for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
+    const k=[ids[i],ids[j]].sort().join('|');
+    if(!linkSet.has(k)){linkSet.add(k);links.push({source:ids[i],target:ids[j]});}
+  }
+});
+
+// Cross-author resonance arcs (facts from different authors sharing 2+ tags)
+const sharedTagCount={};
+links.forEach(l=>{
+  const s=nodeMap[l.source], t=nodeMap[l.target];
+  if(s&&t&&s.author!==t.author){
+    const k=[s.author,t.author].sort().join('|');
+    sharedTagCount[k]=(sharedTagCount[k]||0)+1;
+  }
+});
+const resonanceLinks = Object.entries(sharedTagCount)
+  .filter(([,c])=>c>=2)
+  .map(([k,c])=>{const [a,b]=k.split('|');return{from:a,to:b,strength:c};});
+
+// ── FORCE SIMULATION ──────────────────────────────────────────────────────────
+const sim = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(links).id(d=>d.id).distance(d=>{
+    const s=nodeMap[d.source.id||d.source], t=nodeMap[d.target.id||d.target];
+    return s&&t&&s.author===t.author?55:90;
+  }).strength(.15))
+  .force('charge', d3.forceManyBody().strength(-160))
+  .force('collision', d3.forceCollide(d=>d.r+8))
+  .force('cluster', ()=>{
+    // Pull nodes toward author centroid
+    const centroids={};
+    nodes.forEach(n=>{
+      if(!centroids[n.author]) centroids[n.author]={x:0,y:0,count:0};
+      centroids[n.author].x+=n.x||0; centroids[n.author].y+=n.y||0; centroids[n.author].count++;
+    });
+    Object.values(centroids).forEach(c=>{c.x/=c.count;c.y/=c.count});
+    nodes.forEach(n=>{
+      const c=centroids[n.author]; if(!c) return;
+      n.vx+=(c.x-n.x)*.01; n.vy+=(c.y-n.y)*.01;
+    });
+  })
+  .force('center', d3.forceCenter(W/2, H/2).strength(.05));
+
+// ── RENDER LINKS ──────────────────────────────────────────────────────────────
+const linkSel = gLinks.selectAll('line').data(links).join('line')
+  .attr('class','link-line').attr('stroke','rgba(0,172,105,.12)')
+  .attr('stroke-width',.8).attr('opacity',0);
+
+// ── RENDER NODES ──────────────────────────────────────────────────────────────
+const nodeSel = gNodes.selectAll('g.node').data(nodes).join('g')
+  .attr('class','node').style('cursor','pointer')
+  .call(d3.drag()
+    .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y})
+    .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y})
+    .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
+
+// Nebula halo (author colony glow)
+nodeSel.append('circle').attr('class','node-halo')
+  .attr('r',d=>d.r*3.5).attr('fill','url(#nebula)').attr('opacity',.4)
+  .style('fill',d=>d.col);
+
+// Main glow circle
+nodeSel.append('circle').attr('class','node-glow')
+  .attr('r',d=>d.r+4).attr('fill','none')
+  .attr('stroke',d=>d.col).attr('stroke-width',1.5)
+  .attr('opacity',.35).attr('filter',d=>'url(#glow-'+d.glowLvl+')');
+
+// Core circle
+nodeSel.append('circle').attr('class','node-circle')
+  .attr('r',d=>d.r).attr('fill',d=>d.catCol)
+  .attr('stroke',d=>d.col).attr('stroke-width',1)
+  .attr('filter',d=>'url(#glow-'+d.glowLvl+')')
+  .style('animation',d=>d.pulseClass+' '+(d.trust>0.75?1.5:d.trust>0.4?2.8:5)+'s ease-in-out infinite');
+
+// Label (visible at medium/close zoom)
+nodeSel.append('text').attr('class','node-label')
+  .attr('y',d=>d.r+14).attr('text-anchor','middle')
+  .attr('font-size',10).attr('fill','#8FADC7').attr('opacity',0)
+  .attr('pointer-events','none')
+  .text(d=>d.content.slice(0,28)+(d.content.length>28?'…':''));
+
+// ── HOVER ─────────────────────────────────────────────────────────────────────
+nodeSel.on('mouseenter',(e,d)=>{
+  // Brighten connected links
+  linkSel.attr('stroke-opacity',l=>{
+    const sid=l.source.id||l.source, tid=l.target.id||l.target;
+    return sid===d.id||tid===d.id?1:.05;
+  }).attr('stroke-width',l=>{
+    const sid=l.source.id||l.source, tid=l.target.id||l.target;
+    return sid===d.id||tid===d.id?2:.8;
+  });
+  // Dim other nodes
+  nodeSel.select('.node-circle').attr('opacity',n=>n.id===d.id?1:.25);
+  nodeSel.select('.node-label').attr('opacity',n=>n.id===d.id?.9:.05);
+  // Fire synaptic particle
+  fireSynapse(d);
+}).on('mouseleave',()=>{
+  linkSel.attr('stroke-opacity',null).attr('stroke-width',.8);
+  nodeSel.select('.node-circle').attr('opacity',1);
+  updateLabels(currentScale);
+}).on('click',(e,d)=>{
+  e.stopPropagation();
+  showFactPanel(d);
+});
+
+svg.on('click',()=>hideFactPanel());
+
+// ── ZOOM ─────────────────────────────────────────────────────────────────────
+let currentScale=0.35;
+const zoom=d3.zoom().scaleExtent([.06,12])
+  .on('zoom',({transform})=>{
+    g.attr('transform',transform);
+    currentScale=transform.k;
+    updateZoomLevel(transform.k);
+    updateLabels(transform.k);
+    drawMinimap(transform);
+  });
+svg.call(zoom);
+
+// Initial zoom out to see the galaxy
+svg.call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(0.35).translate(-W/2,-H/2));
+
+function updateZoomLevel(k){
+  const el=document.getElementById('zoom-level');
+  if(k<0.35) el.textContent='aerial · scroll to zoom in';
+  else if(k<0.9) el.textContent='ground · facts visible';
+  else el.textContent='roots · '+(k>2?'detail view':'zooming in');
+  // Update active button
+  ['btn-aerial','btn-ground','btn-roots'].forEach(id=>document.getElementById(id).classList.remove('active'));
+  if(k<0.35) document.getElementById('btn-aerial').classList.add('active');
+  else if(k<0.9) document.getElementById('btn-ground').classList.add('active');
+  else document.getElementById('btn-roots').classList.add('active');
+}
+
+function updateLabels(k){
+  nodeSel.select('.node-label').attr('opacity',k>0.8?0.8:k>0.5?0.4:0);
+  linkSel.attr('opacity', k>0.25?Math.min(1,k*1.5):0);
+  nodeSel.select('.node-halo').attr('opacity', k<0.4?0.5:0.2);
+}
+
+// Preset zoom buttons
+document.getElementById('btn-aerial').onclick=()=>svg.transition().duration(800).call(zoom.transform,d3.zoomIdentity.translate(W/2,H/2).scale(0.25).translate(-W/2,-H/2));
+document.getElementById('btn-ground').onclick=()=>svg.transition().duration(800).call(zoom.transform,d3.zoomIdentity.translate(W/2,H/2).scale(0.7).translate(-W/2,-H/2));
+document.getElementById('btn-roots').onclick=()=>svg.transition().duration(800).call(zoom.transform,d3.zoomIdentity.translate(W/2,H/2).scale(1.5).translate(-W/2,-H/2));
+
+// ── SIMULATION TICK ───────────────────────────────────────────────────────────
+sim.on('tick',()=>{
+  linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+         .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+  nodeSel.attr('transform',d=>'translate('+d.x+','+d.y+')');
+  drawMinimap(d3.zoomTransform(svg.node()));
+});
+
+// ── RESONANCE ARCS ────────────────────────────────────────────────────────────
+// Author centroids computed after simulation stabilizes
+sim.on('end',()=>{
+  const centroids={};
+  nodes.forEach(n=>{
+    if(!centroids[n.author]) centroids[n.author]={x:0,y:0,c:0};
+    centroids[n.author].x+=n.x; centroids[n.author].y+=n.y; centroids[n.author].c++;
+  });
+  Object.values(centroids).forEach(c=>{c.x/=c.c;c.y/=c.c});
+
+  gResonance.selectAll('path.resonance-line').data(resonanceLinks).join('path')
+    .attr('class','resonance-line').attr('fill','none')
+    .attr('stroke','rgba(0,172,105,.18)').attr('stroke-width',d=>Math.min(d.strength*.5,3))
+    .attr('d',d=>{
+      const a=centroids[d.from],b=centroids[d.to];
+      if(!a||!b) return '';
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2 - 60;
+      return 'M'+a.x+','+a.y+' Q'+mx+','+my+' '+b.x+','+b.y;
+    }).attr('filter','url(#glow-low)');
+
+  // Pulse resonance arcs periodically
+  setInterval(()=>{
+    gResonance.selectAll('path.resonance-line').each(function(){
+      const p=d3.select(this);
+      p.transition().duration(600).attr('stroke','rgba(0,172,105,.6)')
+       .transition().duration(1200).attr('stroke','rgba(0,172,105,.18)');
+    });
+  }, 4000);
+});
+
+// ── SYNAPTIC PARTICLES ────────────────────────────────────────────────────────
+function fireSynapse(node){
+  const connected=links.filter(l=>{
+    const sid=l.source.id||l.source, tid=l.target.id||l.target;
+    return sid===node.id||tid===node.id;
+  }).slice(0,4);
+  connected.forEach((l,i)=>{
+    setTimeout(()=>{
+      const s=l.source, t=l.target;
+      const sx=s.x||0, sy=s.y||0, tx=t.x||0, ty=t.y||0;
+      const fromNode=nodeMap[s.id||s], isFrom=(s.id||s)===node.id;
+      const x1=isFrom?sx:tx, y1=isFrom?sy:ty, x2=isFrom?tx:sx, y2=isFrom?ty:sy;
+      const p=g.append('circle').attr('r',3).attr('fill',node.col||'#00AC69')
+        .attr('cx',x1).attr('cy',y1).attr('opacity',0)
+        .attr('filter','url(#glow-high)').attr('pointer-events','none');
+      p.transition().duration(100).attr('opacity',1)
+       .transition().duration(600).ease(d3.easeSinInOut)
+       .attrTween('cx',()=>d3.interpolateNumber(x1,x2))
+       .attrTween('cy',()=>d3.interpolateNumber(y1,y2))
+       .transition().duration(200).attr('opacity',0)
+       .on('end',()=>p.remove());
+    }, i*120);
+  });
+}
+
+// Background idle synaptic fire
+function scheduleIdleFire(){
+  const idx=Math.floor(Math.random()*nodes.length);
+  if(nodes[idx]) fireSynapse(nodes[idx]);
+  setTimeout(scheduleIdleFire, 2000+Math.random()*4000);
+}
+setTimeout(scheduleIdleFire, 3000);
+
+// ── FACT PANEL ────────────────────────────────────────────────────────────────
+function showFactPanel(d){
+  const panel=document.getElementById('fact-panel');
+  const body=document.getElementById('fp-body');
+  const tagsHtml=d.tags.map(t=>'<span class="fp-tag'+(t.startsWith('category:')?' cat':'')+'" data-tag="'+t.replace(/"/g,'&quot;')+'">'+t+'</span>').join('');
+  const trust=Math.round(d.trust*100);
+  const col=authorColor[d.author]||'#00AC69';
+  body.innerHTML='<div class="fp-content">'+d.content+'</div>'
+    +'<div class="fp-row"><span class="fp-label">Author</span><span class="fp-value" style="color:'+col+'">@'+d.author+'</span></div>'
+    +(d.project?'<div class="fp-row"><span class="fp-label">Project</span><span class="fp-value">'+d.project+'</span></div>':'')
+    +'<div class="fp-row"><span class="fp-label">Trust</span><span class="fp-value">'+trust+'%</span></div>'
+    +'<div class="fp-trust-bar"><div class="fp-trust-fill" style="width:'+trust+'%;background:'+col+'"></div></div>'
+    +'<div class="fp-row" style="margin-top:8px"><span class="fp-label">Surfaces</span><span class="fp-value">'+d.surface_count+'</span></div>'
+    +'<div class="fp-row"><span class="fp-label">Rejects</span><span class="fp-value">'+d.reject_count+'</span></div>'
+    +'<div class="fp-tags">'+tagsHtml+'</div>'
+    +'<div class="fp-rcmd" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.textContent)">team-memory reject '+d.id+'</div>';
+  panel.style.display='block';
+  // fly camera to node
+  const t=d3.zoomTransform(svg.node());
+  const tx=W/2-d.x*Math.max(t.k,1), ty=H/2-d.y*Math.max(t.k,1);
+  svg.transition().duration(700).call(zoom.transform,d3.zoomIdentity.translate(tx,ty).scale(Math.max(t.k,1.2)));
+  // Highlight node
+  nodeSel.select('.node-circle').attr('stroke-width',n=>n.id===d.id?3:1);
+  fireSynapse(d);
+}
+function hideFactPanel(){
+  document.getElementById('fact-panel').style.display='none';
+  nodeSel.select('.node-circle').attr('stroke-width',1);
+}
+document.getElementById('fp-close').onclick=e=>{e.stopPropagation();hideFactPanel();};
+
+// ── SEARCH ────────────────────────────────────────────────────────────────────
+const searchBox=document.getElementById('search-box');
+const searchResults=document.getElementById('search-results');
+let searchActive=false;
+
+function doSearch(q){
+  if(!q.trim()){
+    searchResults.style.display='none';
+    nodeSel.select('.node-circle').attr('opacity',1);
+    nodeSel.select('.node-label').attr('opacity',d=>currentScale>0.8?0.8:currentScale>0.5?0.4:0);
+    searchActive=false; return;
+  }
+  searchActive=true;
+  const ql=q.toLowerCase();
+  const matched=nodes.filter(n=>n.content.toLowerCase().includes(ql)||n.tags.some(t=>t.toLowerCase().includes(ql))||n.author.toLowerCase().includes(ql));
+  nodeSel.select('.node-circle').attr('opacity',n=>matched.find(m=>m.id===n.id)?1:.08);
+  nodeSel.select('.node-label').attr('opacity',n=>matched.find(m=>m.id===n.id)?.9:.02);
+  // Show dropdown
+  searchResults.innerHTML=matched.slice(0,8).map(n=>'<div class="sr-item" data-id="'+n.id+'">'
+    +'<div class="sr-content">'+n.content.slice(0,60)+(n.content.length>60?'…':'')+'</div>'
+    +'<div class="sr-meta">@'+n.author+(n.project?' · '+n.project:'')+' · trust '+Math.round(n.trust*100)+'%</div>'
+    +'</div>').join('');
+  searchResults.style.display=matched.length?'block':'none';
+  searchResults.querySelectorAll('.sr-item').forEach(el=>{
+    el.onclick=()=>{
+      const n=nodeMap[el.dataset.id]; if(n){showFactPanel(n);searchResults.style.display='none';}
+    };
+  });
+}
+
+searchBox.addEventListener('input',e=>doSearch(e.target.value));
+searchBox.addEventListener('keydown',e=>{if(e.key==='Escape'){searchBox.value='';doSearch('');}});
+document.addEventListener('keydown',e=>{
+  if((e.key==='/'||((e.metaKey||e.ctrlKey)&&e.key==='k'))&&document.activeElement!==searchBox){
+    e.preventDefault(); searchBox.focus(); searchBox.select();
+  }
+  if(e.key==='Escape'){hideFactPanel();searchBox.blur();searchBox.value='';doSearch('');}
+});
+
+// ── HEAT MAP TOGGLE ───────────────────────────────────────────────────────────
+let heatOn=false;
+document.getElementById('btn-heat').onclick=function(){
+  heatOn=!heatOn;
+  this.classList.toggle('active',heatOn);
+  if(heatOn){
+    const maxS=Math.max(...nodes.map(n=>n.surface_count),1);
+    nodeSel.select('.node-circle').attr('fill',d=>{
+      const t=d.surface_count/maxS;
+      return d3.interpolateYlOrRd(t);
+    });
+  } else {
+    nodeSel.select('.node-circle').attr('fill',d=>d.catCol);
+  }
+};
+
+// ── LEGEND ────────────────────────────────────────────────────────────────────
+const legendEl=document.getElementById('legend');
+document.getElementById('btn-legend').onclick=function(){
+  const vis=legendEl.style.display==='block';
+  legendEl.style.display=vis?'none':'block';
+  this.classList.toggle('active',!vis);
+};
+// Build legend: authors + categories
+const authorItems=authors.slice(0,6).map(a=>'<div class="leg-item"><div class="leg-dot" style="background:'+authorColor[a]+'"></div><span>'+a+'</span></div>').join('');
+const catItems=Object.entries(CAT_COLOR).map(([k,v])=>'<div class="leg-item"><div class="leg-dot" style="background:'+v+'"></div><span>'+k+'</span></div>').join('');
+legendEl.innerHTML='<div style="font-size:10px;color:#8FADC7;margin-bottom:6px;font-weight:600">AUTHORS</div>'+authorItems+'<div style="font-size:10px;color:#8FADC7;margin:8px 0 6px;font-weight:600">CATEGORY</div>'+catItems;
+
+// ── MINIMAP ───────────────────────────────────────────────────────────────────
+const mmCanvas=document.getElementById('minimap-canvas');
+const mmCtx=mmCanvas.getContext('2d');
+mmCanvas.width=160; mmCanvas.height=100;
+function drawMinimap(transform){
+  mmCtx.clearRect(0,0,160,100);
+  mmCtx.fillStyle='rgba(0,0,0,.3)';mmCtx.fillRect(0,0,160,100);
+  const xs=nodes.map(n=>n.x||0), ys=nodes.map(n=>n.y||0);
+  if(!xs.length) return;
+  const mnx=Math.min(...xs),mxx=Math.max(...xs),mny=Math.min(...ys),mxy=Math.max(...ys);
+  const pw=mxx-mnx||1, ph=mxy-mny||1;
+  const sx=140/pw, sy=80/ph, sc=Math.min(sx,sy);
+  const ox=(160-pw*sc)/2-mnx*sc, oy=(100-ph*sc)/2-mny*sc;
+  // Draw nodes
+  nodes.forEach(n=>{
+    mmCtx.beginPath();
+    mmCtx.arc(n.x*sc+ox, n.y*sc+oy, Math.max(1.5, n.r*sc*.5), 0, Math.PI*2);
+    mmCtx.fillStyle=authorColor[n.author]||'#00AC69';
+    mmCtx.globalAlpha=.7; mmCtx.fill(); mmCtx.globalAlpha=1;
+  });
+  // Viewport rect
+  const vx=-transform.x/transform.k*sc+ox;
+  const vy=-transform.y/transform.k*sc+oy;
+  const vw=W/transform.k*sc, vh=H/transform.k*sc;
+  mmCtx.strokeStyle='#00AC69'; mmCtx.lineWidth=1.5;
+  mmCtx.strokeRect(vx,vy,vw,vh);
+}
+mmCanvas.addEventListener('click',e=>{
+  const r=mmCanvas.getBoundingClientRect();
+  const cx=e.clientX-r.left, cy=e.clientY-r.top;
+  const xs=nodes.map(n=>n.x||0), ys=nodes.map(n=>n.y||0);
+  if(!xs.length) return;
+  const mnx=Math.min(...xs),mxx=Math.max(...xs),mny=Math.min(...ys),mxy=Math.max(...ys);
+  const pw=mxx-mnx||1, ph=mxy-mny||1;
+  const sc=Math.min(140/pw,80/ph);
+  const ox=(160-pw*sc)/2-mnx*sc, oy=(100-ph*sc)/2-mny*sc;
+  const wx=(cx-ox)/sc, wy=(cy-oy)/sc;
+  const k=d3.zoomTransform(svg.node()).k;
+  svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(W/2-wx*k,H/2-wy*k).scale(k));
+});
+
+// ── STATS BAR ─────────────────────────────────────────────────────────────────
+document.getElementById('stats-bar').textContent=facts.length+' facts · '+authors.length+' authors · '+tagIndex.length+' tags';
+
+})();
+</script>
+</body>
+</html>

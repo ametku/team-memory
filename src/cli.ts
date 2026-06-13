@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { basename, dirname, join } from "path";
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { addFact } from "./add.js";
 import { rejectFact } from "./reject.js";
@@ -18,8 +19,13 @@ import { getDeveloperName } from "./developer.js";
 import { runPrepromptHook } from "./preprompt.js";
 import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
+import { runExtractBgc } from "./extract-bgc.js";
+import { getPendingFacts, removePendingFacts, markSessionHandledByExtractFacts } from "./pending-facts.js";
+import { markSessionActive, markSessionCleanEnd } from "./active-sessions.js";
 import { generateDashboard } from "./dashboard.js";
 import { createOptInMarker, registerProject, isOptedIn } from "./opt-in.js";
+import { updateInstallation } from "./update.js";
+import { runExtractSlack } from "./extract-slack.js";
 
 const USAGE = `team-memory — shared long-term memory for coding agents
 
@@ -36,9 +42,14 @@ Commands:
   install-hook         Install post-merge git hook for auto-rebuild
   preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
   session-end          Commit accumulated surface interactions to git
-  extract-bg           Extract facts from Claude Code session files using NerdCompletion
+  extract-bg           Extract facts from past sessions using NerdCompletion API
+  extract-bgc          Extract facts from past sessions using Claude (no API key needed)
+  review-pending       Review facts queued by extract-bgc in current project
   dashboard            Generate and open a static HTML fact browser
   opt-in               Opt the current project into team-memory fact extraction
+  update               Pull + rebuild CLI, refresh hooks/skill, sync facts
+                       Use --no-rebuild to skip git pull + build step
+  extract-slack        Extract facts from Slack threads matching queued prompts
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
                        and install the Claude pre-prompt hook in ~/.claude/settings.json
   init                 Create a new team-memory repo on GitHub, bootstrap it,
@@ -97,7 +108,13 @@ function main(): void {
   }
 
   if (args.includes("--version") || args.includes("-v")) {
-    process.stdout.write("0.1.0\n");
+    try {
+      const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      process.stdout.write(`${pkg.version ?? "unknown"}\n`);
+    } catch {
+      process.stdout.write("unknown\n");
+    }
     process.exit(0);
   }
 
@@ -232,8 +249,18 @@ function main(): void {
     try {
       const result = initRepo({ org, repo, dir });
       process.stdout.write(`Initialized ${org}/${repo} → ${result.repoDir}\n`);
-      process.stdout.write(`export TEAM_MEMORY_DIR=${result.repoDir}\n`);
-      process.stdout.write(`\nTo backfill facts from past Claude Code sessions, run:\n`);
+      process.stdout.write(`\nWhat was set up:\n`);
+      process.stdout.write(`  • Git repo: ${result.repoDir}\n`);
+      process.stdout.write(`  • Per-dev facts DB: ${result.setup.factsDbPath}\n`);
+      process.stdout.write(`  • Per-dev interactions DB: ${result.setup.interactionsDbPath}\n`);
+      process.stdout.write(`  • Merged index: ${result.setup.indexPath}\n`);
+      process.stdout.write(`  • Post-merge hook: ${result.setup.hookPath} (${result.setup.hookInstalled ? "installed" : "already present"})\n`);
+      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionEnd + Stop(idle)\n`);
+      process.stdout.write(`  • Skill: ~/.claude/skills/extract-facts/SKILL.md\n`);
+      process.stdout.write(`\nexport TEAM_MEMORY_DIR=${result.repoDir}\n`);
+      process.stdout.write(`\nTo backfill facts from past Claude Code sessions (no API key needed):\n`);
+      process.stdout.write(`  team-memory extract-bgc\n`);
+      process.stdout.write(`\nOr with NerdCompletion API:\n`);
       process.stdout.write(`  NERD_COMPLETION_API_KEY=<your-key> team-memory extract-bg\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
@@ -253,7 +280,17 @@ function main(): void {
     try {
       const result = joinRepo({ repoUrl: url, dir });
       process.stdout.write(`Joined ${url} → ${result.repoDir}\n`);
-      process.stdout.write(`\nTo backfill facts from past Claude Code sessions, run:\n`);
+      process.stdout.write(`\nWhat was set up:\n`);
+      process.stdout.write(`  • Git repo cloned: ${result.repoDir}\n`);
+      process.stdout.write(`  • Per-dev facts DB: ${result.setup.factsDbPath}\n`);
+      process.stdout.write(`  • Per-dev interactions DB: ${result.setup.interactionsDbPath}\n`);
+      process.stdout.write(`  • Merged index: ${result.setup.indexPath}\n`);
+      process.stdout.write(`  • Post-merge hook: ${result.setup.hookPath} (${result.setup.hookInstalled ? "installed" : "already present"})\n`);
+      process.stdout.write(`  • Claude hooks: UserPromptSubmit + SessionEnd + Stop(idle)\n`);
+      process.stdout.write(`  • Skill: ~/.claude/skills/extract-facts/SKILL.md\n`);
+      process.stdout.write(`\nTo backfill facts from past Claude Code sessions (no API key needed):\n`);
+      process.stdout.write(`  team-memory extract-bgc\n`);
+      process.stdout.write(`\nOr with NerdCompletion API:\n`);
       process.stdout.write(`  NERD_COMPLETION_API_KEY=<your-key> team-memory extract-bg\n`);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
@@ -340,6 +377,95 @@ function main(): void {
     return;
   }
 
+  if (command === "extract-bgc") {
+    const dryRun = commandArgs.includes("--dry-run");
+    runExtractBgc({ dryRun }).catch((e: any) => {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
+    });
+    return;
+  }
+
+  if (command === "review-pending") {
+    const repoDir = resolveRepoDir();
+    const project = detectProject();
+    if (!project) {
+      process.stderr.write("Error: not in a git repository\n");
+      process.exit(1);
+    }
+    const pending = getPendingFacts(repoDir, project);
+    if (pending.length === 0) {
+      process.stdout.write(`No pending facts for ${project}.\n`);
+      return;
+    }
+    (async () => {
+      const { createInterface } = await import("readline");
+      process.stdout.write(`${pending.length} pending fact(s) for ${project}:\n\n`);
+      const approved: string[] = [];
+      const rejected: string[] = [];
+      for (let i = 0; i < pending.length; i++) {
+        const f = pending[i];
+        process.stdout.write(`Fact ${i + 1}/${pending.length}:\n  ${f.content}\n  tags: ${JSON.stringify(f.tags)}\n  from: ${f.session}\n`);
+        const answer = await new Promise<string>(res => {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          rl.question("Save? (y/n): ", a => { rl.close(); res(a.trim().toLowerCase()); });
+        });
+        if (answer === "y") {
+          approved.push(f.id);
+          execFileSync("team-memory", ["add", f.content, "--project", project, "--tags", JSON.stringify(f.tags)], { stdio: "inherit" });
+        } else { rejected.push(f.id); }
+      }
+      removePendingFacts(repoDir, project, [...approved, ...rejected]);
+      process.stdout.write(`\nDone. ${approved.length} saved, ${rejected.length} rejected.\n`);
+    })().catch(e => { process.stderr.write(`Error: ${e.message}\n`); process.exit(1); });
+    return;
+  }
+
+  if (command === "session-start") {
+    // Claude Code SessionStart hook — mark session active + notify pending facts
+    let raw = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (c: string) => { raw += c; });
+    process.stdin.on("end", () => {
+      try {
+        const payload = JSON.parse(raw);
+        const sessionId = payload.session_id ?? "";
+        if (sessionId) markSessionActive(sessionId);
+        const repoDir = resolveRepoDir();
+        const project = (() => { try { return basename(execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim()); } catch { return null; } })();
+        if (project) {
+          const count = getPendingFacts(repoDir, project).length;
+          if (count > 0) {
+            process.stdout.write(JSON.stringify({ systemMessage: `team-memory: ${count} fact(s) pending review from past sessions — run \`! team-memory review-pending\` when ready.` }));
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+      process.stdout.write(JSON.stringify({ continue: true }));
+    });
+    return;
+  }
+
+  if (command === "session-deactivate") {
+    // Called from SessionEnd hook: remove sentinel + mark session handled for bgc
+    // so extract-bgc never re-processes a session that /extract-facts already handled
+    let raw = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (c: string) => { raw += c; });
+    process.stdin.on("end", () => {
+      try {
+        const payload = JSON.parse(raw);
+        const sessionId = payload.session_id ?? "";
+        if (sessionId) {
+          markSessionCleanEnd(sessionId);
+          const repoDir = resolveRepoDir();
+          markSessionHandledByExtractFacts(repoDir, sessionId);
+        }
+      } catch { /* ignore */ }
+    });
+    return;
+  }
+
   if (command === "dashboard") {
     const repoDir = resolveRepoDir();
     const indexPath = join(repoDir, "merged_index.db");
@@ -347,6 +473,46 @@ function main(): void {
     const noOpen = commandArgs.includes("--no-open");
     const result = generateDashboard({ repoDir, indexPath, outputPath, openBrowser: !noOpen });
     process.stdout.write(`Dashboard: ${result.factCount} facts from ${result.authorCount} author(s) → ${result.outputPath}\n`);
+    return;
+  }
+
+  if (command === "update") {
+    const noRebuild = commandArgs.includes("--no-rebuild");
+    if (!noRebuild) {
+      process.stdout.write(`Pulling latest CLI source and rebuilding...\n`);
+    }
+    const result = updateInstallation({ noRebuild });
+    if (result.rebuilt) {
+      const same = result.versionBefore === result.versionAfter;
+      process.stdout.write(
+        same
+          ? `CLI rebuilt (v${result.versionAfter}, same version — settings refreshed)\n`
+          : `CLI upgraded: v${result.versionBefore} → v${result.versionAfter}\n`
+      );
+    } else if (result.rebuildWarning) {
+      process.stdout.write(`CLI rebuild: ${result.rebuildWarning}\n`);
+    }
+    process.stdout.write(`Wiping old hooks and reinstalling fresh...\n`);
+    process.stdout.write(`Hooks reinstalled → ${result.settingsPath}\n`);
+    process.stdout.write(`  • UserPromptSubmit: team-memory preprompt-hook\n`);
+    process.stdout.write(`  • SessionEnd: reminder to run /extract-facts\n`);
+    process.stdout.write(`  • Stop (idle): ~/.team-memory/hooks/idle.sh (2min idle, 10min cooldown)\n`);
+    process.stdout.write(`Skill: ${result.skillUpdated ? "updated → ~/.claude/skills/extract-facts/SKILL.md" : "already current"}\n`);
+    if (result.pullWarning) {
+      process.stdout.write(`Warning: team sync failed — ${result.pullWarning}\n`);
+    } else {
+      process.stdout.write(`Team facts synced.\n`);
+    }
+    process.stdout.write(`Done.\n`);
+    return;
+  }
+
+  if (command === "extract-slack") {
+    const dryRun = commandArgs.includes("--dry-run");
+    runExtractSlack({ dryRun }).catch((e: any) => {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
+    });
     return;
   }
 
