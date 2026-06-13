@@ -18,6 +18,9 @@ import { getDeveloperName } from "./developer.js";
 import { runPrepromptHook } from "./preprompt.js";
 import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
+import { runExtractBgc } from "./extract-bgc.js";
+import { getPendingFacts, removePendingFacts, markSessionHandledByExtractFacts } from "./pending-facts.js";
+import { markSessionActive, markSessionCleanEnd } from "./active-sessions.js";
 import { generateDashboard } from "./dashboard.js";
 import { createOptInMarker, registerProject, isOptedIn } from "./opt-in.js";
 import { updateInstallation } from "./update.js";
@@ -38,7 +41,9 @@ Commands:
   install-hook         Install post-merge git hook for auto-rebuild
   preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
   session-end          Commit accumulated surface interactions to git
-  extract-bg           Extract facts from Claude Code session files using NerdCompletion
+  extract-bg           Extract facts from past sessions using NerdCompletion API
+  extract-bgc          Extract facts from past sessions using Claude (no API key needed)
+  review-pending       Review facts queued by extract-bgc in current project
   dashboard            Generate and open a static HTML fact browser
   opt-in               Opt the current project into team-memory fact extraction
 update               Pull + rebuild CLI, refresh hooks/skill, sync facts
@@ -341,6 +346,95 @@ function main(): void {
     runExtractBg({ dryRun }).catch((e: any) => {
       process.stderr.write(`Error: ${e.message}\n`);
       process.exit(1);
+    });
+    return;
+  }
+
+  if (command === "extract-bgc") {
+    const dryRun = commandArgs.includes("--dry-run");
+    runExtractBgc({ dryRun }).catch((e: any) => {
+      process.stderr.write(`Error: ${e.message}\n`);
+      process.exit(1);
+    });
+    return;
+  }
+
+  if (command === "review-pending") {
+    const repoDir = resolveRepoDir();
+    const project = detectProject();
+    if (!project) {
+      process.stderr.write("Error: not in a git repository\n");
+      process.exit(1);
+    }
+    const pending = getPendingFacts(repoDir, project);
+    if (pending.length === 0) {
+      process.stdout.write(`No pending facts for ${project}.\n`);
+      return;
+    }
+    (async () => {
+      const { createInterface } = await import("readline");
+      process.stdout.write(`${pending.length} pending fact(s) for ${project}:\n\n`);
+      const approved: string[] = [];
+      const rejected: string[] = [];
+      for (let i = 0; i < pending.length; i++) {
+        const f = pending[i];
+        process.stdout.write(`Fact ${i + 1}/${pending.length}:\n  ${f.content}\n  tags: ${JSON.stringify(f.tags)}\n  from: ${f.session}\n`);
+        const answer = await new Promise<string>(res => {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          rl.question("Save? (y/n): ", a => { rl.close(); res(a.trim().toLowerCase()); });
+        });
+        if (answer === "y") {
+          approved.push(f.id);
+          execFileSync("team-memory", ["add", f.content, "--project", project, "--tags", JSON.stringify(f.tags)], { stdio: "inherit" });
+        } else { rejected.push(f.id); }
+      }
+      removePendingFacts(repoDir, project, [...approved, ...rejected]);
+      process.stdout.write(`\nDone. ${approved.length} saved, ${rejected.length} rejected.\n`);
+    })().catch(e => { process.stderr.write(`Error: ${e.message}\n`); process.exit(1); });
+    return;
+  }
+
+  if (command === "session-start") {
+    // Claude Code SessionStart hook — mark session active + notify pending facts
+    let raw = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (c: string) => { raw += c; });
+    process.stdin.on("end", () => {
+      try {
+        const payload = JSON.parse(raw);
+        const sessionId = payload.session_id ?? "";
+        if (sessionId) markSessionActive(sessionId);
+        const repoDir = resolveRepoDir();
+        const project = (() => { try { return basename(execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf-8" }).trim()); } catch { return null; } })();
+        if (project) {
+          const count = getPendingFacts(repoDir, project).length;
+          if (count > 0) {
+            process.stdout.write(JSON.stringify({ systemMessage: `team-memory: ${count} fact(s) pending review from past sessions — run \`! team-memory review-pending\` when ready.` }));
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+      process.stdout.write(JSON.stringify({ continue: true }));
+    });
+    return;
+  }
+
+  if (command === "session-deactivate") {
+    // Called from SessionEnd hook: remove sentinel + mark session handled for bgc
+    // so extract-bgc never re-processes a session that /extract-facts already handled
+    let raw = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (c: string) => { raw += c; });
+    process.stdin.on("end", () => {
+      try {
+        const payload = JSON.parse(raw);
+        const sessionId = payload.session_id ?? "";
+        if (sessionId) {
+          markSessionCleanEnd(sessionId);
+          const repoDir = resolveRepoDir();
+          markSessionHandledByExtractFacts(repoDir, sessionId);
+        }
+      } catch { /* ignore */ }
     });
     return;
   }

@@ -1,0 +1,11 @@
+{
+  "terminal.integrated.env.osx": {
+    "TEAM_MEMORY_DIR": "${env:HOME}/.team-memory",
+    "TEAM_MEMORY_DEVELOPER": "mavinash"
+  },
+  "editor.formatOnSave": true,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "vitest.enable": true,
+  "vitest.commandLine": "npx vitest"
+}

@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>team-memory — Mycelium Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+  /* ─── Reset & base ──────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:           #1D252C;
+    --bg-mid:       #222C35;
+    --bg-card:      #26303A;
+    --green:        #00AC69;
+    --green-dim:    #007A4C;
+    --green-pale:   #00AC6922;
+    --green-glow:   #00FF9E;
+    --text:         #C8D8E4;
+    --text-dim:     #6B8899;
+    --text-bright:  #EEF4F8;
+    --amber:        #F5A623;
+    --purple:       #9B6DFF;
+    --pink:         #FF6EB4;
+    --colony-0:     #00AC69;  /* colony A — main green */
+    --colony-1:     #9B6DFF;  /* colony B — purple */
+    --colony-2:     #F5A623;  /* colony C — amber */
+    --colony-3:     #FF6EB4;  /* colony D — pink */
+    --font:         'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --radius:       8px;
+    --transition:   0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    overflow: hidden;
+  }
+
+  /* ─── Layout shell ──────────────────────────────────────────────────── */
+  #shell {
+    display: grid;
+    grid-template-rows: 44px 1fr;
+    grid-template-columns: 1fr 280px;
+    grid-template-areas:
+      "topbar topbar"
+      "canvas sidebar";
+    width: 100vw; height: 100vh;
+  }
+
+  /* ─── Top bar ───────────────────────────────────────────────────────── */
+  #topbar {
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    background: #16202799;
+    border-bottom: 1px solid #00AC6930;
+    backdrop-filter: blur(8px);
+    z-index: 30;
+  }
+
+  #logo {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 700; letter-spacing: 0.05em;
+    color: var(--green);
+    text-shadow: 0 0 12px var(--green);
+    flex-shrink: 0;
+  }
+  #logo svg { filter: drop-shadow(0 0 6px var(--green)); }
+
+  #search-wrap {
+    flex: 1; max-width: 480px;
+    position: relative;
+  }
+  #search {
+    width: 100%;
+    background: #0D161D;
+    border: 1px solid #00AC6940;
+    border-radius: 20px;
+    padding: 6px 14px 6px 36px;
+    color: var(--text-bright);
+    font-family: var(--font);
+    font-size: 13px;
+    outline: none;
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  #search:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-pale), 0 0 20px #00AC6920;
+  }
+  #search::placeholder { color: var(--text-dim); }
+  #search-icon {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    color: var(--text-dim); pointer-events: none;
+    font-size: 14px;
+  }
+
+  #zoom-controls {
+    display: flex; gap: 4px; margin-left: auto;
+  }
+  .zoom-btn {
+    background: #0D161D;
+    border: 1px solid #00AC6930;
+    border-radius: 6px;
+    color: var(--text-dim);
+    padding: 4px 10px;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    transition: all var(--transition);
+  }
+  .zoom-btn:hover, .zoom-btn.active {
+    border-color: var(--green);
+    color: var(--green);
+    box-shadow: 0 0 8px var(--green-pale);
+    text-shadow: 0 0 6px var(--green);
+  }
+
+  #stats {
+    display: flex; gap: 16px;
+    font-size: 11px; color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .stat span { color: var(--green); font-weight: 700; }
+
+  /* ─── Main canvas ───────────────────────────────────────────────────── */
+  #canvas-wrap {
+    grid-area: canvas;
+    position: relative;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 60%, #0E1A22 0%, var(--bg) 80%);
+  }
+
+  #ground-line {
+    position: absolute;
+    left: 0; right: 0;
+    pointer-events: none;
+    z-index: 2;
+    transition: top 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  svg#graph {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+  }
+
+  /* ─── Sidebar ───────────────────────────────────────────────────────── */
+  #sidebar {
+    grid-area: sidebar;
+    background: #16202799;
+    border-left: 1px solid #00AC6920;
+    display: flex; flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+    backdrop-filter: blur(6px);
+  }
+
+  .side-section {
+    border-bottom: 1px solid #00AC6915;
+    padding: 12px 14px;
+  }
+  .side-title {
+    font-size: 10px; letter-spacing: 0.12em;
+    color: var(--text-dim); text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  /* minimap */
+  #minimap-canvas {
+    width: 100%; aspect-ratio: 16/10;
+    border-radius: 6px;
+    border: 1px solid #00AC6930;
+    background: #0D161D;
+    display: block;
+  }
+
+  /* tag cloud */
+  #tag-cloud {
+    display: flex; flex-wrap: wrap; gap: 5px;
+  }
+  .tag-pill {
+    background: #0D161D;
+    border: 1px solid #00AC6928;
+    border-radius: 10px;
+    padding: 3px 9px;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .tag-pill:hover, .tag-pill.active {
+    border-color: var(--green);
+    color: var(--green);
+    box-shadow: 0 0 6px var(--green-pale);
+  }
+
+  /* colony legend */
+  #colony-legend { display: flex; flex-direction: column; gap: 6px; }
+  .colony-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 4px; border-radius: 4px;
+    transition: background var(--transition);
+  }
+  .colony-row:hover { background: #00AC6910; }
+  .colony-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  /* recent facts feed */
+  #feed { flex: 1; overflow-y: auto; }
+  #feed::-webkit-scrollbar { width: 4px; }
+  #feed::-webkit-scrollbar-track { background: transparent; }
+  #feed::-webkit-scrollbar-thumb { background: #00AC6930; border-radius: 2px; }
+
+  .feed-item {
+    padding: 9px 14px;
+    border-bottom: 1px solid #00AC6910;
+    cursor: pointer;
+    transition: background var(--transition);
+  }
+  .feed-item:hover { background: #00AC6910; }
+  .feed-author {
+    font-size: 10px; letter-spacing: 0.06em;
+    margin-bottom: 3px;
+  }
+  .feed-content {
+    font-size: 11px; color: var(--text);
+    line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .feed-tags {
+    margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap;
+  }
+  .feed-tag {
+    font-size: 10px; color: var(--text-dim);
+    background: #00AC6912; border-radius: 3px; padding: 1px 5px;
+  }
+
+  /* ─── Hover card (tooltip) ──────────────────────────────────────────── */
+  #hover-card {
+    position: fixed;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    max-width: 300px;
+    min-width: 220px;
+  }
+  #hover-card.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  .hcard {
+    background: #1A2530EE;
+    border: 1px solid var(--green);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    box-shadow: 0 0 24px #00AC6930, 0 8px 32px #00000080;
+    backdrop-filter: blur(12px);
+  }
+  .hcard-id {
+    font-size: 10px; color: var(--text-dim); margin-bottom: 6px;
+    letter-spacing: 0.08em;
+  }
+  .hcard-content {
+    font-size: 12px; color: var(--text-bright);
+    line-height: 1.5; margin-bottom: 8px;
+  }
+  .hcard-meta {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 4px; font-size: 10px; color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .hcard-meta strong { color: var(--text); }
+  .hcard-trust {
+    height: 4px; border-radius: 2px;
+    background: #0D161D; overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .hcard-trust-bar {
+    height: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--green-dim), var(--green-glow));
+    transition: width 0.4s ease;
+    box-shadow: 0 0 8px var(--green);
+  }
+  .hcard-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .hcard-tag {
+    font-size: 10px; padding: 2px 7px; border-radius: 8px;
+    background: #00AC6920; color: var(--green);
+    border: 1px solid #00AC6940;
+  }
+
+  /* ─── SVG internals ─────────────────────────────────────────────────── */
+  .mycelium-thread {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke-opacity 0.3s ease, stroke-width 0.3s ease;
+  }
+
+  .mushroom-cap { cursor: pointer; }
+  .mushroom-cap:hover { filter: brightness(1.4); }
+
+  .node-label {
+    font-family: var(--font);
+    font-size: 9px;
+    fill: var(--text-dim);
+    text-anchor: middle;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  /* ─── Depth layers ──────────────────────────────────────────────────── */
+  .layer-above  { transition: opacity 0.8s ease; }
+  .layer-ground { transition: opacity 0.8s ease; }
+  .layer-below  { transition: opacity 0.8s ease; }
+
+  /* ─── Zoom level badge ──────────────────────────────────────────────── */
+  #zoom-badge {
+    position: absolute; bottom: 16px; left: 16px;
+    font-size: 10px; letter-spacing: 0.1em;
+    color: var(--text-dim);
+    background: #0D161DCC;
+    border: 1px solid #00AC6925;
+    border-radius: 4px;
+    padding: 4px 8px;
+    z-index: 10;
+    pointer-events: none;
+    transition: all var(--transition);
+  }
+
+  /* ─── Particle canvas overlay ───────────────────────────────────────── */
+  #particle-canvas {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* ─── Soil gradient overlay ─────────────────────────────────────────── */
+  #soil-overlay {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 1.2s ease;
+  }
+</style>
+</head>
+<body>
+
+<div id="shell">
+
+  <!-- TOP BAR -->
+  <header id="topbar">
+    <div id="logo">
+      <svg width="22" height="22" viewBox="0 0 22 22">
+        <!-- mushroom icon -->
+        <ellipse cx="11" cy="9" rx="9" ry="6" fill="#00AC69" opacity="0.85"/>
+        <rect x="9" y="9" width="4" height="8" rx="2" fill="#00AC69" opacity="0.7"/>
+        <!-- spores -->
+        <circle cx="5" cy="7" r="1" fill="#00FF9E" opacity="0.6"/>
+        <circle cx="17" cy="6" r="0.8" fill="#00FF9E" opacity="0.5"/>
+        <circle cx="11" cy="3" r="0.7" fill="#00FF9E" opacity="0.7"/>
+      </svg>
+      team-memory
+    </div>
+
+    <div id="search-wrap">
+      <span id="search-icon">⌕</span>
+      <input id="search" type="text" placeholder="Search facts, tags, authors…" autocomplete="off" />
+    </div>
+
+    <div id="zoom-controls">
+      <button class="zoom-btn" data-level="aerial">AERIAL</button>
+      <button class="zoom-btn active" data-level="ground">GROUND</button>
+      <button class="zoom-btn" data-level="roots">ROOTS</button>
+    </div>
+
+    <div id="stats">
+      <div>facts: <span id="stat-facts">0</span></div>
+      <div>tags: <span id="stat-tags">0</span></div>
+      <div>authors: <span id="stat-authors">0</span></div>
+    </div>
+  </header>
+
+  <!-- CANVAS -->
+  <main id="canvas-wrap">
+    <canvas id="particle-canvas"></canvas>
+    <div id="soil-overlay"></div>
+
+    <svg id="graph">
+      <defs>
+        <!-- Glow filters per trust level -->
+        <filter id="glow-low"  x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="glow-mid"  x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="glow-high" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="9" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="thread-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <!-- Soil texture gradient -->
+        <linearGradient id="soil-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#1D252C" stop-opacity="0"/>
+          <stop offset="45%"  stop-color="#1D252C" stop-opacity="0"/>
+          <stop offset="52%"  stop-color="#16120A" stop-opacity="0.7"/>
+          <stop offset="100%" stop-color="#0D0A05" stop-opacity="0.95"/>
+        </linearGradient>
+        <!-- Radial underground tint -->
+        <radialGradient id="underground-grad" cx="50%" cy="70%" r="60%">
+          <stop offset="0%"   stop-color="#1A1408" stop-opacity="0.6"/>
+          <stop offset="100%" stop-color="#0A0805" stop-opacity="0.1"/>
+        </radialGradient>
+
+        <!-- Spore particle marker -->
+        <circle id="spore-tmpl" r="1.5" fill="#00FF9E" opacity="0.7"/>
+      </defs>
+
+      <!-- Soil/underground overlay rect -->
+      <rect id="soil-rect" width="100%" height="100%" fill="url(#soil-grad)" pointer-events="none"/>
+      <rect id="underground-rect" width="100%" height="100%" fill="url(#underground-grad)" opacity="0" pointer-events="none"/>
+
+      <!-- Ground line -->
+      <line id="ground-svg-line" x1="0" y1="50%" x2="100%" y2="50%"
+            stroke="#3A2A1A" stroke-width="1.5" stroke-dasharray="4 8" opacity="0.4"/>
+
+      <!-- Layers rendered by JS -->
+      <g id="layer-roots"  class="layer-below"></g>
+      <g id="layer-stems"  class="layer-ground"></g>
+      <g id="layer-caps"   class="layer-above"></g>
+      <g id="layer-labels" class="layer-above"></g>
+      <g id="layer-spores"></g>
+    </svg>
+
+    <div id="zoom-badge">GROUND LEVEL — MYCELIUM NETWORK</div>
+  </main>
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar">
+
+    <div class="side-section">
+      <div class="side-title">Minimap</div>
+      <canvas id="minimap-canvas" width="252" height="158"></canvas>
+    </div>
+
+    <div class="side-section">
+      <div class="side-title">Tags / Spore Clusters</div>
+      <div id="tag-cloud"></div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-title">Colonies (Authors)</div>
+      <div id="colony-legend"></div>
+    </div>
+
+    <div class="side-section" style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
+      <div class="side-title">Recent Growth</div>
+      <div id="feed"></div>
+    </div>
+
+  </aside>
+</div>
+
+<!-- HOVER CARD -->
+<div id="hover-card">
+  <div class="hcard">
+    <div class="hcard-id" id="hc-id"></div>
+    <div class="hcard-content" id="hc-content"></div>
+    <div class="hcard-meta">
+      <div>Author: <strong id="hc-author"></strong></div>
+      <div>Project: <strong id="hc-project"></strong></div>
+      <div>Created: <strong id="hc-created"></strong></div>
+      <div>Trust: <strong id="hc-trust-val"></strong></div>
+    </div>
+    <div class="hcard-trust"><div class="hcard-trust-bar" id="hc-trust-bar"></div></div>
+    <div class="hcard-tags" id="hc-tags"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// SEED DATA — synthetic team-memory facts
+// ═══════════════════════════════════════════════════════════════════════════
+const COLONY_COLORS = ['#00AC69','#9B6DFF','#F5A623','#FF6EB4'];
+const COLONY_NAMES  = ['mavinash','team-ai','backend','frontend'];
+
+const RAW_FACTS = [
+  { id:'f001', content:'SQLite WAL mode must be enabled for concurrent readers; run PRAGMA journal_mode=WAL on every new connection.', project:'team-memory', tags:['sqlite','performance','concurrency'], author:0, trust:0.95, created:'2026-05-01' },
+  { id:'f002', content:'The extract-bg job processes only the 50 most recent unprocessed sessions to avoid runaway token costs.', project:'team-memory', tags:['extract','limits','cost'], author:0, trust:0.88, created:'2026-05-10' },
+  { id:'f003', content:'D3 force simulations should call simulation.stop() in cleanup to prevent memory leaks in React components.', project:'dashboard', tags:['d3','react','memory'], author:1, trust:0.82, created:'2026-05-12' },
+  { id:'f004', content:'nanoid default alphabet excludes look-alike chars; safe for human-readable IDs in CLI output.', project:'team-memory', tags:['ids','cli','nanoid'], author:0, trust:0.78, created:'2026-05-14' },
+  { id:'f005', content:'Better-sqlite3 is synchronous; wrap long queries in worker_threads to avoid blocking the event loop.', project:'team-memory', tags:['sqlite','threading','performance'], author:2, trust:0.91, created:'2026-05-16' },
+  { id:'f006', content:'Claude API responses may include markdown fences around JSON; always strip before JSON.parse().', project:'team-memory', tags:['claude','api','parsing'], author:1, trust:0.97, created:'2026-05-18' },
+  { id:'f007', content:'team-memory init asks users to run extract-bg after setup; this is a UX nudge not a hard requirement.', project:'team-memory', tags:['ux','onboarding','extract'], author:0, trust:0.70, created:'2026-05-20' },
+  { id:'f008', content:'Trust score decays 5% per month unless the fact is re-confirmed by another team member.', project:'team-memory', tags:['trust','scoring','decay'], author:0, trust:0.85, created:'2026-05-22' },
+  { id:'f009', content:'Vitest runs in parallel by default; use --pool=forks when tests mutate global state.', project:'team-memory', tags:['vitest','testing','parallelism'], author:2, trust:0.80, created:'2026-05-24' },
+  { id:'f010', content:'The merged-index rebuilds from scratch on every call; cache the result in-process for read-heavy workloads.', project:'team-memory', tags:['performance','index','caching'], author:1, trust:0.73, created:'2026-05-26' },
+  { id:'f011', content:'Husky pre-commit hooks should be idempotent; running lint-staged twice must not corrupt staged files.', project:'pre-commit', tags:['husky','lint','idempotent'], author:3, trust:0.88, created:'2026-05-28' },
+  { id:'f012', content:'NR theme primary green is #00AC69; never use pure #00FF00 — it reads as "error green" to users.', project:'dashboard', tags:['design','color','nr-theme'], author:3, trust:0.99, created:'2026-05-30' },
+  { id:'f013', content:'D3 zoom.scaleExtent([0.1, 8]) is the safe range for this graph; below 0.1 labels become invisible noise.', project:'dashboard', tags:['d3','zoom','ux'], author:1, trust:0.76, created:'2026-06-01' },
+  { id:'f014', content:'SQLite indexes on (project, deleted_at) cut fact queries from 40ms to 2ms on a 10k-row store.', project:'team-memory', tags:['sqlite','index','performance'], author:2, trust:0.94, created:'2026-06-03' },
+  { id:'f015', content:'Active sessions file is a JSONL append-only log; compact it weekly or reads degrade linearly.', project:'team-memory', tags:['jsonl','sessions','maintenance'], author:0, trust:0.81, created:'2026-06-05' },
+  { id:'f016', content:'TypeScript strict mode catches ~30% more bugs in this codebase than standard mode; keep it enabled.', project:'team-memory', tags:['typescript','strict','quality'], author:2, trust:0.90, created:'2026-06-07' },
+  { id:'f017', content:'Fact extraction prompt must explicitly ask for JSON array output; prose responses occur ~8% of the time.', project:'team-memory', tags:['claude','prompting','extraction'], author:1, trust:0.87, created:'2026-06-09' },
+  { id:'f018', content:'The prune command soft-deletes by setting deleted_at; hard deletion is intentionally not implemented.', project:'team-memory', tags:['prune','soft-delete','design'], author:0, trust:0.92, created:'2026-06-11' },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ═══════════════════════════════════════════════════════════════════════════
+let zoomLevel = 'ground'; // aerial | ground | roots
+let activeTag  = null;
+let activeColony = null;
+let searchQuery  = '';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GRAPH DATA MODEL
+// ═══════════════════════════════════════════════════════════════════════════
+function buildGraph(facts) {
+  const nodes = facts.map(f => ({
+    ...f,
+    type: 'fact',
+    color: COLONY_COLORS[f.author],
+    glowRadius: 4 + f.trust * 14,
+  }));
+
+  // Tag nodes
+  const tagMap = new Map();
+  facts.forEach(f => f.tags.forEach(t => {
+    if (!tagMap.has(t)) tagMap.set(t, { id:'tag:'+t, label:t, type:'tag', color:'#00AC6966', trust:0.5 });
+    tagMap.get(t).trust = Math.min(1, tagMap.get(t).trust + 0.08);
+  }));
+  const tagNodes = [...tagMap.values()];
+
+  const links = [];
+  facts.forEach(f => {
+    f.tags.forEach(t => {
+      links.push({ source: f.id, target: 'tag:'+t, tag: t, strength: 0.3 + f.trust * 0.4 });
+    });
+  });
+
+  return { nodes: [...nodes, ...tagNodes], links };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// D3 SIMULATION
+// ═══════════════════════════════════════════════════════════════════════════
+const { nodes, links } = buildGraph(RAW_FACTS);
+let simulation, gTransform = d3.zoomIdentity;
+
+function initGraph() {
+  const svg    = d3.select('#graph');
+  const W      = document.getElementById('canvas-wrap').offsetWidth;
+  const H      = document.getElementById('canvas-wrap').offsetHeight;
+  const groundY = H * 0.48;
+
+  // Update ground line
+  d3.select('#ground-svg-line').attr('y1', groundY).attr('y2', groundY);
+
+  simulation = d3.forceSimulation(nodes)
+    .force('link',   d3.forceLink(links).id(d => d.id).distance(d => 70 + (1 - d.strength) * 60).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(d => d.type === 'tag' ? -120 : -80))
+    .force('center', d3.forceCenter(W / 2, groundY))
+    .force('y',      d3.forceY(d => d.type === 'tag' ? groundY + 60 : groundY - 30).strength(0.12))
+    .force('collision', d3.forceCollide(d => d.type === 'tag' ? 18 : 14))
+    .on('tick', ticked);
+
+  // D3 zoom
+  const zoom = d3.zoom()
+    .scaleExtent([0.08, 8])
+    .on('zoom', (event) => {
+      gTransform = event.transform;
+      svg.select('#layer-roots').attr('transform', event.transform);
+      svg.select('#layer-stems').attr('transform', event.transform);
+      svg.select('#layer-caps') .attr('transform', event.transform);
+      svg.select('#layer-labels').attr('transform', event.transform);
+      svg.select('#layer-spores').attr('transform', event.transform);
+      updateMinimap();
+    });
+  svg.call(zoom);
+
+  renderLinks();
+  renderNodes();
+  renderLabels();
+  updateSidebar();
+  updateStats();
+  startParticles();
+  startSporeAnimation();
+  schedulePulse();
+}
+
+// ─── Ticked ──────────────────────────────────────────────────────────────
+function ticked() {
+  // Roots / threads
+  d3.select('#layer-roots').selectAll('path.mycelium-thread')
+    .attr('d', d => threadPath(d.source, d.target));
+
+  // Stems
+  d3.select('#layer-stems').selectAll('line.mushroom-stem')
+    .attr('x1', d => d.x).attr('y1', d => d.y)
+    .attr('x2', d => d.x).attr('y2', d => d.y + stemHeight(d));
+
+  // Caps
+  d3.select('#layer-caps').selectAll('ellipse.mushroom-cap')
+    .attr('cx', d => d.x)
+    .attr('cy', d => d.y - capOffset(d));
+
+  // Tag nodes
+  d3.select('#layer-caps').selectAll('circle.tag-node')
+    .attr('cx', d => d.x).attr('cy', d => d.y);
+
+  // Labels
+  d3.select('#layer-labels').selectAll('text.node-label')
+    .attr('x', d => d.x)
+    .attr('y', d => d.type === 'fact' ? d.y - capOffset(d) - 10 : d.y - 14);
+
+  updateMinimap();
+}
+
+function stemHeight(d) { return d.type === 'fact' ? 8 + d.trust * 10 : 0; }
+function capOffset(d)   { return d.type === 'fact' ? stemHeight(d) + 4 : 0; }
+
+function threadPath(s, t) {
+  const mx = (s.x + t.x) / 2 + (Math.random() < 0.5 ? 1 : -1) * 20;
+  const my = (s.y + t.y) / 2 + 25;
+  return `M${s.x},${s.y} Q${mx},${my} ${t.x},${t.y}`;
+}
+
+// ─── Render links ─────────────────────────────────────────────────────────
+function renderLinks() {
+  const layer = d3.select('#layer-roots');
+  layer.selectAll('path.mycelium-thread')
+    .data(links, d => d.source.id + '-' + d.target.id)
+    .join(
+      enter => enter.append('path')
+        .attr('class', 'mycelium-thread')
+        .attr('stroke', d => COLONY_COLORS[nodeByTag(d)] || '#00AC69')
+        .attr('stroke-width', d => 0.5 + d.strength * 1.5)
+        .attr('stroke-opacity', 0.25)
+        .attr('filter', 'url(#thread-glow)')
+        .attr('d', d => threadPath(d.source, d.target))
+        .call(el => el.transition().duration(800).attr('stroke-opacity', d => 0.15 + d.strength * 0.3))
+    );
+}
+
+function nodeByTag(link) {
+  const src = typeof link.source === 'object' ? link.source : nodes.find(n => n.id === link.source);
+  return src && src.author !== undefined ? src.author : 0;
+}
+
+// ─── Render nodes ─────────────────────────────────────────────────────────
+function renderNodes() {
+  const capsLayer  = d3.select('#layer-caps');
+  const stemsLayer = d3.select('#layer-stems');
+
+  // Fact nodes — stems
+  stemsLayer.selectAll('line.mushroom-stem')
+    .data(nodes.filter(n => n.type === 'fact'), d => d.id)
+    .join('line')
+    .attr('class', 'mushroom-stem')
+    .attr('stroke', d => d.color)
+    .attr('stroke-width', 1.5)
+    .attr('stroke-opacity', 0.5)
+    .attr('x1', d => d.x).attr('y1', d => d.y)
+    .attr('x2', d => d.x).attr('y2', d => d.y + stemHeight(d));
+
+  // Fact nodes — caps
+  capsLayer.selectAll('ellipse.mushroom-cap')
+    .data(nodes.filter(n => n.type === 'fact'), d => d.id)
+    .join('ellipse')
+    .attr('class', 'mushroom-cap')
+    .attr('rx', d => 5 + d.trust * 8)
+    .attr('ry', d => 3 + d.trust * 5)
+    .attr('fill', d => d.color)
+    .attr('fill-opacity', d => 0.6 + d.trust * 0.35)
+    .attr('filter', d => d.trust > 0.85 ? 'url(#glow-high)' : d.trust > 0.65 ? 'url(#glow-mid)' : 'url(#glow-low)')
+    .attr('cx', d => d.x)
+    .attr('cy', d => d.y - capOffset(d))
+    .on('mouseenter', onNodeHover)
+    .on('mouseleave', onNodeLeave)
+    .on('click', onNodeClick);
+
+  // Tag nodes — small glowing circles underground
+  capsLayer.selectAll('circle.tag-node')
+    .data(nodes.filter(n => n.type === 'tag'), d => d.id)
+    .join('circle')
+    .attr('class', 'tag-node')
+    .attr('r', d => 4 + d.trust * 6)
+    .attr('fill', '#00AC6940')
+    .attr('stroke', '#00AC69')
+    .attr('stroke-width', 0.8)
+    .attr('filter', 'url(#glow-low)')
+    .attr('cx', d => d.x).attr('cy', d => d.y)
+    .on('mouseenter', onTagHover)
+    .on('mouseleave', onNodeLeave);
+}
+
+// ─── Render labels ─────────────────────────────────────────────────────────
+function renderLabels() {
+  d3.select('#layer-labels').selectAll('text.node-label')
+    .data(nodes, d => d.id)
+    .join('text')
+    .attr('class', 'node-label')
+    .text(d => d.type === 'tag' ? '#'+d.label : d.id)
+    .attr('fill', d => d.type === 'tag' ? '#00AC6999' : COLONY_COLORS[d.author]+'99')
+    .attr('x', d => d.x)
+    .attr('y', d => d.type === 'fact' ? d.y - capOffset(d) - 10 : d.y - 14);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HOVER CARD
+// ═══════════════════════════════════════════════════════════════════════════
+function onNodeHover(event, d) {
+  if (d.type !== 'fact') return;
+  const card = document.getElementById('hover-card');
+  document.getElementById('hc-id').textContent = d.id;
+  document.getElementById('hc-content').textContent = d.content;
+  document.getElementById('hc-author').textContent = COLONY_NAMES[d.author];
+  document.getElementById('hc-project').textContent = d.project || '—';
+  document.getElementById('hc-created').textContent = d.created;
+  document.getElementById('hc-trust-val').textContent = Math.round(d.trust * 100) + '%';
+  document.getElementById('hc-trust-bar').style.width = (d.trust * 100) + '%';
+  document.getElementById('hc-trust-bar').style.background =
+    d.trust > 0.85 ? 'linear-gradient(90deg,#007A4C,#00FF9E)' :
+    d.trust > 0.65 ? 'linear-gradient(90deg,#005C38,#00AC69)' :
+                     'linear-gradient(90deg,#3A3000,#F5A623)';
+  const tagsEl = document.getElementById('hc-tags');
+  tagsEl.innerHTML = d.tags.map(t => `<span class="hcard-tag">#${t}</span>`).join('');
+
+  positionCard(event, card);
+  card.classList.add('visible');
+
+  // Highlight connected threads
+  d3.select('#layer-roots').selectAll('path.mycelium-thread')
+    .attr('stroke-opacity', l =>
+      (l.source.id === d.id || l.target.id === d.id) ? 0.85 : 0.06
+    )
+    .attr('stroke-width', l =>
+      (l.source.id === d.id || l.target.id === d.id) ? 2 : 0.5
+    );
+}
+
+function onTagHover(event, d) {
+  const related = links.filter(l => l.target.id === d.id || l.source.id === d.id);
+  d3.select('#layer-roots').selectAll('path.mycelium-thread')
+    .attr('stroke-opacity', l =>
+      related.includes(l) ? 0.8 : 0.05
+    );
+}
+
+function onNodeLeave() {
+  document.getElementById('hover-card').classList.remove('visible');
+  d3.select('#layer-roots').selectAll('path.mycelium-thread')
+    .attr('stroke-opacity', d => 0.15 + d.strength * 0.25)
+    .attr('stroke-width', d => 0.5 + d.strength * 1.5);
+}
+
+function onNodeClick(event, d) {
+  event.stopPropagation();
+  // Focus node: emit spores
+  emitSpores(d, 12);
+}
+
+function positionCard(event, card) {
+  const x = event.clientX + 14;
+  const y = event.clientY - 10;
+  const cw = card.offsetWidth || 280;
+  const ch = card.offsetHeight || 180;
+  card.style.left = Math.min(x, window.innerWidth - cw - 12) + 'px';
+  card.style.top  = Math.min(y, window.innerHeight - ch - 12) + 'px';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ZOOM LEVELS
+// ═══════════════════════════════════════════════════════════════════════════
+const ZOOM_CONFIG = {
+  aerial: {
+    scale: 0.35,
+    label: 'AERIAL — SPORE CLOUD VIEW',
+    soilOpacity: 0,
+    undergroundOpacity: 0,
+    labelOpacity: 0,
+    stemOpacity: 0.2,
+    capScale: 0.7,
+    threadOpacity: 0.12,
+  },
+  ground: {
+    scale: 1.0,
+    label: 'GROUND LEVEL — MYCELIUM NETWORK',
+    soilOpacity: 0.5,
+    undergroundOpacity: 0,
+    labelOpacity: 0.8,
+    stemOpacity: 1,
+    capScale: 1,
+    threadOpacity: 0.3,
+  },
+  roots: {
+    scale: 1.8,
+    label: 'UNDERGROUND — ROOT STRUCTURE',
+    soilOpacity: 0.9,
+    undergroundOpacity: 0.7,
+    labelOpacity: 1,
+    stemOpacity: 0.3,
+    capScale: 0.5,
+    threadOpacity: 0.9,
+  },
+};
+
+function setZoomLevel(level) {
+  zoomLevel = level;
+  const cfg = ZOOM_CONFIG[level];
+  const W = document.getElementById('canvas-wrap').offsetWidth;
+  const H = document.getElementById('canvas-wrap').offsetHeight;
+
+  // Update badge
+  document.getElementById('zoom-badge').textContent = cfg.label;
+
+  // Update buttons
+  document.querySelectorAll('.zoom-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.level === level);
+  });
+
+  // Animate SVG zoom
+  const svg = d3.select('#graph');
+  const zoom = d3.zoom().scaleExtent([0.08, 8]).on('zoom', (event) => {
+    gTransform = event.transform;
+    ['#layer-roots','#layer-stems','#layer-caps','#layer-labels','#layer-spores']
+      .forEach(id => svg.select(id).attr('transform', event.transform));
+    updateMinimap();
+  });
+  svg.call(zoom);
+
+  const tx = W / 2 * (1 - cfg.scale);
+  const ty = H / 2 * (1 - cfg.scale);
+  svg.transition().duration(900).ease(d3.easeCubicInOut)
+    .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(cfg.scale));
+
+  // Fade soil / underground layers
+  d3.select('#soil-rect').transition().duration(900)
+    .attr('opacity', cfg.soilOpacity);
+  d3.select('#underground-rect').transition().duration(900)
+    .attr('opacity', cfg.undergroundOpacity);
+
+  // Thread visibility
+  d3.select('#layer-roots').selectAll('path.mycelium-thread')
+    .transition().duration(700)
+    .attr('stroke-opacity', d => cfg.threadOpacity * (0.5 + d.strength * 0.5));
+
+  // Labels
+  d3.select('#layer-labels').selectAll('text.node-label')
+    .transition().duration(700)
+    .attr('opacity', cfg.labelOpacity);
+
+  // Stems
+  d3.select('#layer-stems').selectAll('line.mushroom-stem')
+    .transition().duration(700)
+    .attr('stroke-opacity', cfg.stemOpacity * 0.5);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEARCH / FILTER
+// ═══════════════════════════════════════════════════════════════════════════
+function applyFilter() {
+  const q = searchQuery.toLowerCase();
+  nodes.forEach(n => {
+    if (n.type !== 'fact') return;
+    const match = !q ||
+      n.content.toLowerCase().includes(q) ||
+      n.tags.some(t => t.includes(q)) ||
+      COLONY_NAMES[n.author].includes(q) ||
+      (n.project || '').toLowerCase().includes(q);
+    const tagMatch = !activeTag || n.tags.includes(activeTag);
+    const colonyMatch = activeColony === null || n.author === activeColony;
+    n._hidden = !(match && tagMatch && colonyMatch);
+  });
+
+  d3.select('#layer-caps').selectAll('ellipse.mushroom-cap')
+    .transition().duration(400)
+    .attr('fill-opacity', d => d._hidden ? 0.05 : 0.6 + d.trust * 0.35)
+    .attr('filter', d => d._hidden ? null : (d.trust > 0.85 ? 'url(#glow-high)' : d.trust > 0.65 ? 'url(#glow-mid)' : 'url(#glow-low)'));
+
+  d3.select('#layer-stems').selectAll('line.mushroom-stem')
+    .transition().duration(400)
+    .attr('stroke-opacity', d => d._hidden ? 0.02 : 0.5);
+
+  d3.select('#layer-roots').selectAll('path.mycelium-thread')
+    .transition().duration(400)
+    .attr('stroke-opacity', l => {
+      const srcHidden = (typeof l.source === 'object' ? l.source._hidden : false);
+      const tgtHidden = (typeof l.target === 'object' ? l.target._hidden : false);
+      if (srcHidden || tgtHidden) return 0.02;
+      return ZOOM_CONFIG[zoomLevel].threadOpacity * (0.5 + l.strength * 0.5);
+    });
+}
+
+document.getElementById('search').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  applyFilter();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════════════════════════════════════
+function updateSidebar() {
+  // Tag cloud
+  const tagCounts = new Map();
+  RAW_FACTS.forEach(f => f.tags.forEach(t => tagCounts.set(t, (tagCounts.get(t)||0)+1)));
+  const sorted = [...tagCounts.entries()].sort((a,b) => b[1]-a[1]);
+  const cloud = document.getElementById('tag-cloud');
+  cloud.innerHTML = sorted.map(([t, c]) =>
+    `<span class="tag-pill" data-tag="${t}">#${t} <small style="opacity:.5">${c}</small></span>`
+  ).join('');
+  cloud.querySelectorAll('.tag-pill').forEach(el => {
+    el.addEventListener('click', () => {
+      const t = el.dataset.tag;
+      if (activeTag === t) { activeTag = null; el.classList.remove('active'); }
+      else {
+        cloud.querySelectorAll('.tag-pill').forEach(p => p.classList.remove('active'));
+        activeTag = t; el.classList.add('active');
+      }
+      applyFilter();
+    });
+  });
+
+  // Colony legend
+  const legend = document.getElementById('colony-legend');
+  legend.innerHTML = COLONY_NAMES.map((name, i) => {
+    const count = RAW_FACTS.filter(f => f.author === i).length;
+    return `<div class="colony-row" data-colony="${i}">
+      <span class="colony-dot" style="color:${COLONY_COLORS[i]};background:${COLONY_COLORS[i]}"></span>
+      <span style="color:${COLONY_COLORS[i]}">${name}</span>
+      <span style="margin-left:auto;font-size:10px">${count} facts</span>
+    </div>`;
+  }).join('');
+  legend.querySelectorAll('.colony-row').forEach(el => {
+    el.addEventListener('click', () => {
+      const c = +el.dataset.colony;
+      if (activeColony === c) { activeColony = null; }
+      else { activeColony = c; }
+      applyFilter();
+    });
+  });
+
+  // Feed
+  const feed = document.getElementById('feed');
+  const sorted2 = [...RAW_FACTS].sort((a,b) => b.created.localeCompare(a.created));
+  feed.innerHTML = sorted2.map(f => `
+    <div class="feed-item" data-id="${f.id}">
+      <div class="feed-author" style="color:${COLONY_COLORS[f.author]}">${COLONY_NAMES[f.author]} · ${f.created}</div>
+      <div class="feed-content">${f.content}</div>
+      <div class="feed-tags">${f.tags.map(t=>`<span class="feed-tag">#${t}</span>`).join('')}</div>
+    </div>
+  `).join('');
+}
+
+function updateStats() {
+  document.getElementById('stat-facts').textContent   = RAW_FACTS.length;
+  document.getElementById('stat-tags').textContent    = new Set(RAW_FACTS.flatMap(f=>f.tags)).size;
+  document.getElementById('stat-authors').textContent = new Set(RAW_FACTS.map(f=>f.author)).size;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MINIMAP
+// ═══════════════════════════════════════════════════════════════════════════
+function updateMinimap() {
+  const canvas = document.getElementById('minimap-canvas');
+  const ctx    = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const cw = document.getElementById('canvas-wrap').offsetWidth;
+  const ch = document.getElementById('canvas-wrap').offsetHeight;
+  const scaleX = W / cw, scaleY = H / ch;
+
+  // Draw threads
+  links.forEach(l => {
+    const s = typeof l.source === 'object' ? l.source : nodes.find(n=>n.id===l.source);
+    const t = typeof l.target === 'object' ? l.target : nodes.find(n=>n.id===l.target);
+    if (!s || !t) return;
+    const sx = (s.x * gTransform.k + gTransform.x) * scaleX;
+    const sy = (s.y * gTransform.k + gTransform.y) * scaleY;
+    const tx2 = (t.x * gTransform.k + gTransform.x) * scaleX;
+    const ty2 = (t.y * gTransform.k + gTransform.y) * scaleY;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(tx2, ty2);
+    ctx.strokeStyle = '#00AC6950';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  });
+
+  // Draw nodes
+  nodes.forEach(n => {
+    const nx = (n.x * gTransform.k + gTransform.x) * scaleX;
+    const ny = (n.y * gTransform.k + gTransform.y) * scaleY;
+    ctx.beginPath();
+    ctx.arc(nx, ny, n.type === 'fact' ? 2.5 : 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = n.type === 'fact' ? COLONY_COLORS[n.author] : '#00AC6960';
+    ctx.fill();
+  });
+
+  // Viewport rect
+  const vx  = -gTransform.x / gTransform.k * scaleX * gTransform.k;
+  const vy  = -gTransform.y / gTransform.k * scaleY * gTransform.k;
+  const vw  = W / gTransform.k;
+  const vh  = H / gTransform.k * (H / cw);
+  ctx.strokeStyle = '#00AC69AA';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, W, H); // border
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPORE PARTICLES (canvas overlay)
+// ═══════════════════════════════════════════════════════════════════════════
+const particleCanvas = document.getElementById('particle-canvas');
+const pctx = particleCanvas.getContext('2d');
+let particles = [];
+
+function startParticles() {
+  particleCanvas.width  = document.getElementById('canvas-wrap').offsetWidth;
+  particleCanvas.height = document.getElementById('canvas-wrap').offsetHeight;
+
+  // Seed ambient spores
+  for (let i = 0; i < 40; i++) {
+    particles.push(newAmbientSpore());
+  }
+  animateParticles();
+}
+
+function newAmbientSpore() {
+  return {
+    x: Math.random() * particleCanvas.width,
+    y: Math.random() * particleCanvas.height,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -0.1 - Math.random() * 0.25,
+    alpha: Math.random() * 0.5 + 0.1,
+    r: 0.8 + Math.random() * 1.5,
+    life: 1,
+    decay: 0.002 + Math.random() * 0.003,
+    color: Math.random() < 0.7 ? '#00AC69' : (Math.random() < 0.5 ? '#9B6DFF' : '#F5A623'),
+  };
+}
+
+function emitSpores(node, count) {
+  const W = document.getElementById('canvas-wrap').offsetWidth;
+  const H = document.getElementById('canvas-wrap').offsetHeight;
+  const sx = node.x * gTransform.k + gTransform.x;
+  const sy = (node.y - capOffset(node)) * gTransform.k + gTransform.y;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.5 + Math.random() * 1.5;
+    particles.push({
+      x: sx, y: sy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 1,
+      alpha: 0.9,
+      r: 1 + Math.random() * 2,
+      life: 1,
+      decay: 0.012 + Math.random() * 0.01,
+      color: COLONY_COLORS[node.author],
+    });
+  }
+}
+
+function animateParticles() {
+  pctx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  particles = particles.filter(p => p.life > 0);
+
+  // Refill ambient
+  while (particles.filter(p => p.decay < 0.005).length < 40) {
+    particles.push(newAmbientSpore());
+  }
+
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.life -= p.decay;
+    pctx.beginPath();
+    pctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    pctx.fillStyle = p.color + Math.round(p.life * p.alpha * 255).toString(16).padStart(2,'0');
+    pctx.fill();
+  });
+
+  requestAnimationFrame(animateParticles);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SVG SPORE ANIMATION (growth pulses)
+// ═══════════════════════════════════════════════════════════════════════════
+function startSporeAnimation() {
+  // Breathing pulse on caps
+  function pulse() {
+    d3.select('#layer-caps').selectAll('ellipse.mushroom-cap')
+      .each(function(d) {
+        const el = d3.select(this);
+        const baseRx = 5 + d.trust * 8;
+        const baseRy = 3 + d.trust * 5;
+        el.transition()
+          .duration(1800 + Math.random() * 1200)
+          .ease(d3.easeSinInOut)
+          .attr('rx', baseRx * 1.12)
+          .attr('ry', baseRy * 1.12)
+          .attr('fill-opacity', Math.min(1, 0.6 + d.trust * 0.35 + 0.15))
+          .transition()
+          .duration(1800 + Math.random() * 1200)
+          .ease(d3.easeSinInOut)
+          .attr('rx', baseRx)
+          .attr('ry', baseRy)
+          .attr('fill-opacity', 0.6 + d.trust * 0.35)
+          .on('end', () => setTimeout(pulse, 3000 + Math.random() * 4000));
+      });
+  }
+  setTimeout(pulse, 500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROWTH PULSE (simulate new fact arriving)
+// ═══════════════════════════════════════════════════════════════════════════
+function schedulePulse() {
+  setInterval(() => {
+    // Pick a random fact node and pulse-grow it briefly
+    const factNodes = nodes.filter(n => n.type === 'fact' && !n._hidden);
+    if (!factNodes.length) return;
+    const d = factNodes[Math.floor(Math.random() * factNodes.length)];
+
+    d3.select('#layer-caps').selectAll('ellipse.mushroom-cap')
+      .filter(n => n.id === d.id)
+      .transition().duration(300).ease(d3.easeBackOut)
+      .attr('rx', 5 + d.trust * 8 + 8)
+      .attr('ry', 3 + d.trust * 5 + 5)
+      .attr('fill-opacity', 1)
+      .transition().duration(1200).ease(d3.easeSinOut)
+      .attr('rx', 5 + d.trust * 8)
+      .attr('ry', 3 + d.trust * 5)
+      .attr('fill-opacity', 0.6 + d.trust * 0.35);
+
+    emitSpores(d, 6);
+
+    // Ripple along connected threads
+    d3.select('#layer-roots').selectAll('path.mycelium-thread')
+      .filter(l => l.source.id === d.id || l.target.id === d.id)
+      .transition().duration(400)
+      .attr('stroke-opacity', 0.9)
+      .attr('stroke-width', 3)
+      .transition().duration(1000)
+      .attr('stroke-opacity', l => 0.15 + l.strength * 0.3)
+      .attr('stroke-width', l => 0.5 + l.strength * 1.5);
+
+  }, 3500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WIRE UP CONTROLS
+// ═══════════════════════════════════════════════════════════════════════════
+document.querySelectorAll('.zoom-btn').forEach(btn => {
+  btn.addEventListener('click', () => setZoomLevel(btn.dataset.level));
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initGraph();
+});
+
+window.addEventListener('resize', () => {
+  particleCanvas.width  = document.getElementById('canvas-wrap').offsetWidth;
+  particleCanvas.height = document.getElementById('canvas-wrap').offsetHeight;
+  updateMinimap();
+});
+</script>
+</body>
+</html>
