@@ -7,36 +7,60 @@ const PREPROMPT_COMMAND = "team-memory preprompt-hook";
 const SESSION_END_COMMAND =
   "echo '{\"systemMessage\": \"team-memory: run /extract-facts before quitting to save anything worth keeping.\"}'";
 
-// Fires /extract-facts when BOTH are true:
-//   1. Session idle ≥45s (no new Claude response since this hook started)
-//   2. This session hasn't run extract-facts in the last 30 minutes
-//
-// Fires when BOTH are true:
-//   1. THIS session idle ≥45s — uses per-session activity file so other
-//      active sessions don't reset the idle timer
-//   2. This session hasn't run extract-facts in the last 30 minutes
-//
-// ALL files scoped via $PPID — multiple concurrent sessions never interfere.
-//   /tmp/tm-activity-$PPID        — activity timestamp for THIS session only
-//   /tmp/tm-extracted-ppid-$PPID  — per-session cooldown timestamp
-const IDLE_EXTRACT_COMMAND =
-  "SPID=\"${PPID:-0}\"; " +
-  "TS=$(date +%s); " +
-  "echo $TS > \"/tmp/tm-activity-$SPID\"; " +
-  "SESSION_FLAG=\"/tmp/tm-extracted-ppid-$SPID\"; " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] hook started, waiting 45s...\" >> /tmp/tm-idle.txt; " +
-  "sleep 45; " +
-  "CURRENT=$(cat \"/tmp/tm-activity-$SPID\" 2>/dev/null); " +
-  "LAST=$(cat \"$SESSION_FLAG\" 2>/dev/null || echo 0); " +
-  "NOW=$(date +%s); " +
-  "ELAPSED=$((NOW - LAST)); " +
-  "if [ \"$CURRENT\" = \"$TS\" ] && [ $ELAPSED -ge 1800 ]; then " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] idle + 30min — firing extract-facts\" >> /tmp/tm-idle.txt; " +
-  "echo $NOW > \"$SESSION_FLAG\" && exit 2; " +
-  "else " +
-  "echo \"[team-memory] $(date '+%H:%M:%S') [$SPID] skipping (active or ran within 30min, elapsed=${ELAPSED}s)\" >> /tmp/tm-idle.txt; " +
-  "fi; " +
-  "exit 0";
+// Identifier prefix used in ALL team-memory hook commands.
+// wipeAllTeamMemoryHooks matches this to safely remove only our hooks.
+const TM_HOOK_ID = "# tm:";
+
+// The idle hook is installed as a dedicated script at ~/.team-memory/hooks/idle.sh
+// so settings.json contains only one short line, not a 400-char inline command.
+// This prevents collision with other Stop hooks (e.g. jarvis.sh) and makes
+// deduplication reliable via script path matching.
+const IDLE_HOOK_SCRIPT_NAME = "idle.sh";
+function idleHookScriptPath(): string {
+  return join(resolveHooksDir(), IDLE_HOOK_SCRIPT_NAME);
+}
+function resolveHooksDir(): string {
+  const tmDir = process.env.TEAM_MEMORY_DIR ?? join(homedir(), ".team-memory");
+  return join(tmDir, "hooks");
+}
+
+// The installed command — short, identifiable, easy to wipe cleanly
+function idleExtractCommand(): string {
+  return `${TM_HOOK_ID}idle ${idleHookScriptPath()}`;
+}
+
+// The actual script content written to ~/.team-memory/hooks/idle.sh
+const IDLE_SCRIPT_CONTENT = `#!/bin/sh
+# team-memory idle extract-facts hook
+# Fires /extract-facts after IDLE_SECS idle + COOLDOWN_SECS per-session cooldown.
+# Scoped via PPID so multiple concurrent sessions never interfere.
+SPID="\${PPID:-0}"
+IDLE_SECS=120       # 2 minutes idle before firing
+COOLDOWN_SECS=600   # 10 minutes between fires per session
+
+TS=$(date +%s)
+ACTIVITY="/tmp/tm-activity-$SPID"
+SESSION_FLAG="/tmp/tm-extracted-ppid-$SPID"
+LOGFILE="\${TEAM_MEMORY_DIR:-$HOME/.team-memory}/idle.txt"
+
+echo $TS > "$ACTIVITY"
+echo "[team-memory] $(date '+%H:%M:%S') [$SPID] hook started, waiting \${IDLE_SECS}s..." >> "$LOGFILE"
+sleep $IDLE_SECS
+
+CURRENT=$(cat "$ACTIVITY" 2>/dev/null)
+LAST=$(cat "$SESSION_FLAG" 2>/dev/null || echo 0)
+NOW=$(date +%s)
+ELAPSED=$((NOW - LAST))
+
+if [ "$CURRENT" = "$TS" ] && [ $ELAPSED -ge $COOLDOWN_SECS ]; then
+  echo "[team-memory] $(date '+%H:%M:%S') [$SPID] idle \${IDLE_SECS}s + cooldown elapsed — firing extract-facts" >> "$LOGFILE"
+  echo $NOW > "$SESSION_FLAG"
+  exit 2
+else
+  echo "[team-memory] $(date '+%H:%M:%S') [$SPID] skipping (active or cooldown active, elapsed=\${ELAPSED}s)" >> "$LOGFILE"
+fi
+exit 0
+`;
 
 const SKILL_NAME = "extract-facts";
 
@@ -82,9 +106,11 @@ interface ClaudeSettings {
 }
 
 function isTeamMemoryHook(group: ClaudeHookGroup): boolean {
-  return group.hooks?.some(
-    (h) => typeof h.command === "string" && h.command.includes("team-memory")
-  ) ?? false;
+  return group.hooks?.some((h) => {
+    if (typeof h.command !== "string") return false;
+    // Matches both new-style (# tm: prefix) and old inline commands containing "team-memory"
+    return h.command.startsWith(TM_HOOK_ID) || h.command.includes("team-memory");
+  }) ?? false;
 }
 
 function addHook(groups: ClaudeHookGroup[], entry: Record<string, unknown>): void {
@@ -135,10 +161,19 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
 
   addHook(settings.hooks.UserPromptSubmit as ClaudeHookGroup[], { type: "command", command: PREPROMPT_COMMAND });
   addHook(settings.hooks.SessionEnd as ClaudeHookGroup[], { type: "command", command: SESSION_END_COMMAND });
+
+  // Write the idle script to ~/.team-memory/hooks/idle.sh
+  // Settings.json gets a short identifiable command instead of 400-char inline blob
+  const hooksDir = resolveHooksDir();
+  mkdirSync(hooksDir, { recursive: true });
+  const scriptPath = idleHookScriptPath();
+  writeFileSync(scriptPath, IDLE_SCRIPT_CONTENT);
+  try { const { chmodSync } = require("fs"); chmodSync(scriptPath, 0o755); } catch { /* ok */ }
+
   (settings.hooks.Stop as ClaudeHookGroupExtended[]).push({
     hooks: [{
       type: "command",
-      command: IDLE_EXTRACT_COMMAND,
+      command: idleExtractCommand(),
       asyncRewake: true,
       rewakeMessage: "Session idle for 45 seconds. Please run /extract-facts now to save any valuable insights from this session.",
     }],
