@@ -39,7 +39,9 @@ Commands:
   install-hook         Install post-merge git hook for auto-rebuild
   preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
   session-end          Commit accumulated surface interactions to git
-  extract-bg           Extract facts from past sessions using NerdCompletion API\n  extract-bgc          Extract facts from past sessions using Claude (no API key needed)\n  review-pending       Review facts queued by extract-bgc in current project\n  session-start        Claude Code SessionStart hook (mark session active, notify pending)\n  session-deactivate   Claude Code hook to mark a session as inactive
+  extract-bg           Extract facts from past sessions using NerdCompletion API
+  extract-bgc          Extract facts from past sessions using Claude (no API key needed)
+  review-pending       Review facts queued by extract-bgc in current project
   dashboard            Generate and open a static HTML fact browser
   opt-in               Opt the current project into team-memory fact extraction
   join <repo-url>      Clone an existing team-memory repo, onboard this dev,
@@ -425,7 +427,6 @@ function main(): void {
         if (sessionId) {
           markSessionCleanEnd(sessionId);
           const repoDir = resolveRepoDir();
-          // already imported at top
           markSessionHandledByExtractFacts(repoDir, sessionId);
         }
       } catch { /* ignore */ }
