@@ -219,6 +219,16 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
   if (dryRun) {
     process.stdout.write(`[dry-run] done. No changes written.\n`);
   } else {
-    log(`done. ${totalFacts} fact(s) queued from ${toProcess.length} session(s).`);
+    const logLine = `[extract-bgc] ${new Date().toISOString()} done — ${totalFacts} fact(s) queued from ${toProcess.length} session(s)`;
+    log(logLine.replace('[extract-bgc] ',''));
+    try {
+      const { appendFileSync } = await import('fs');
+      const { join } = await import('path');
+      const { homedir } = await import('os');
+      const logPath = process.env.TEAM_MEMORY_DIR
+        ? join(process.env.TEAM_MEMORY_DIR, 'bgc.log')
+        : join(homedir(), '.team-memory', 'bgc.log');
+      appendFileSync(logPath, logLine + '\n');
+    } catch { /* log file write is best-effort */ }
   }
 }

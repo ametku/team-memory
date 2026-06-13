@@ -449,7 +449,7 @@ function main(): void {
     return;
   }
 
-if (command === "update") {
+  if (command === "update") {
     const noRebuild = commandArgs.includes("--no-rebuild");
     if (!noRebuild) {
       process.stdout.write(`Pulling latest CLI source and rebuilding...\n`);
@@ -474,7 +474,10 @@ if (command === "update") {
       process.stdout.write(`Team facts synced.\n`);
     }
     process.stdout.write(`Done.\n`);
-if (command === "extract-slack") {
+    return;
+  }
+
+  if (command === "extract-slack") {
     const dryRun = commandArgs.includes("--dry-run");
     runExtractSlack({ dryRun }).catch((e: any) => {
       process.stderr.write(`Error: ${e.message}\n`);

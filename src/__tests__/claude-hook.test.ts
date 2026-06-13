@@ -57,7 +57,7 @@ describe("installClaudeHook", () => {
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
-    expect(settings.hooks.SessionEnd).toHaveLength(2); // reminder + deactivate
+    expect(settings.hooks.SessionEnd).toHaveLength(1); // clean-replace: only current version
   });
 
   test("installs SessionEnd alongside a pre-existing UserPromptSubmit entry", () => {
