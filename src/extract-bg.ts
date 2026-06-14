@@ -284,11 +284,13 @@ export async function runExtractBg({ dryRun }: { dryRun: boolean }): Promise<voi
 
   let totalFacts = 0;
 
-  for (const file of toProcess) {
+  for (let i = 0; i < toProcess.length; i++) {
+    const file = toProcess[i];
     const uuid = basename(file);
     const project = deriveProject(file);
-
-    log(`parsing ${uuid} (project: ${project})`);
+    const pct = Math.round((i / toProcess.length) * 100);
+    const bar = "█".repeat(Math.round(pct / 5)).padEnd(20, "░");
+    log(`[${i + 1}/${toProcess.length}] ${bar} ${pct}% | ${project}`);
 
     if (dryRun) {
       process.stdout.write(`[dry-run] Session: ${file}\n`);

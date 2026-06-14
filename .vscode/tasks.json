@@ -1,0 +1,82 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "npm run build",
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Build: Watch",
+      "type": "shell",
+      "command": "npx tsc --watch",
+      "group": "build",
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "label": "tsc watch" },
+      "problemMatcher": "$tsc-watch"
+    },
+    {
+      "label": "Test: All",
+      "type": "shell",
+      "command": "npm test",
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Watch",
+      "type": "shell",
+      "command": "npx vitest",
+      "group": "test",
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "label": "vitest watch" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Current File",
+      "type": "shell",
+      "command": "npx vitest run ${relativeFile}",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build & Test",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Build", "Test: All"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Live: Query test repo",
+      "type": "shell",
+      "command": "TEAM_MEMORY_DIR=~/.team-memory-test team-memory query \"${input:queryText}\"",
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Live: Sync test repo",
+      "type": "shell",
+      "command": "TEAM_MEMORY_DIR=~/.team-memory-test team-memory sync",
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Live: Rebuild index",
+      "type": "shell",
+      "command": "TEAM_MEMORY_DIR=~/.team-memory-test team-memory rebuild-index",
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "queryText",
+      "type": "promptString",
+      "description": "Search query"
+    }
+  ]
+}

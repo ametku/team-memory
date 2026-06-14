@@ -1,6 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
 import { resolve } from "node:path";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -15,14 +15,15 @@ describe("team-memory CLI", () => {
       encoding: "utf-8",
     });
     expect(output).toContain("team-memory");
-    expect(output).toContain("Commands:");
+    expect(output).toContain("Setup");
   });
 
   it("prints version on --version", () => {
     const output = execFileSync("node", [CLI_PATH, "--version"], {
       encoding: "utf-8",
     });
-    expect(output.trim()).toBe("0.1.0");
+    const { version } = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8"));
+    expect(output.trim()).toBe(version);
   });
 
   it("exits with code 1 on unknown command", () => {
@@ -252,7 +253,7 @@ describe("team-memory reject", () => {
         env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
       },
     );
-    expect(rejectOutput).toContain(`Rejected fact ${factId}`);
+    expect(rejectOutput).toContain(`Rejected ${factId}`);
     expect(rejectOutput).toContain("always run lint before push");
   });
 
@@ -273,7 +274,7 @@ describe("team-memory reject", () => {
       });
       expect.fail("should have thrown");
     } catch (e: any) {
-      expect(e.stderr.toString()).toContain("Fact not found");
+      expect(e.stderr.toString()).toContain("Not found");
     }
   });
 });

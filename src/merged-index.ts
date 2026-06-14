@@ -41,10 +41,13 @@ export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats 
     : [];
   const devDbs = factsFiles.length;
 
+  // SQLite single-quoted string: escape embedded single quotes as ''
+  function sqlPath(p: string): string { return p.replace(/'/g, "''"); }
+
   let attachIdx = 0;
   for (const file of factsFiles) {
     const alias = `att_${attachIdx++}`;
-    db.exec(`ATTACH DATABASE '${join(factsDir, file)}' AS ${alias}`);
+    db.exec(`ATTACH DATABASE '${sqlPath(join(factsDir, file))}' AS ${alias}`);
     db.exec(`
       INSERT OR IGNORE INTO staged_facts (id, content, project, tags)
       SELECT id, content, project, tags FROM ${alias}.facts
@@ -61,7 +64,7 @@ export function rebuildIndex(repoDir: string, outputPath: string): RebuildStats 
 
   for (const file of intFiles) {
     const alias = `att_${attachIdx++}`;
-    db.exec(`ATTACH DATABASE '${join(intDir, file)}' AS ${alias}`);
+    db.exec(`ATTACH DATABASE '${sqlPath(join(intDir, file))}' AS ${alias}`);
     db.exec(`
       INSERT INTO staged_interactions (fact_id, surface_count, last_surfaced_at, explicit_score)
       SELECT fact_id, surface_count, last_surfaced_at, explicit_score FROM ${alias}.interactions

@@ -364,6 +364,103 @@ Reject path is symmetric: `team-memory reject f-X` → UPSERT into `interactions
 - MCP server optionally running locally.
 - Post-merge git hook installed in `~/.team-memory/.git/hooks/post-merge` to trigger `team-memory rebuild-index`.
 
+## Idle Extract-Facts Hook
+
+**Purpose:** Automatically trigger `/extract-facts` when a session has been idle for 45 seconds, so facts are never lost even if the developer forgets to run it manually before exiting.
+
+**Mechanism:** A `Stop` hook with `asyncRewake: true` installed in `~/.claude/settings.json` by `team-memory join`/`init`.
+
+**Policy:**
+- Fires only when **both** conditions are true:
+  1. Session has been idle ≥45 seconds (no new Claude response since the hook started)
+  2. At least 30 minutes have elapsed since `/extract-facts` last ran
+- This prevents interruptions during active work while ensuring facts are captured after any sustained idle period.
+
+**How it works:**
+```
+Claude responds → Stop hook fires (async, non-blocking)
+  → records timestamp to /tmp/tm-activity-$PPID  (THIS session only)
+  → sleeps 45 seconds
+
+After 45s:
+  ├── Still idle (this session) AND 30min cooldown elapsed?
+  │     → exit 2 → asyncRewake fires
+  │     → Claude wakes: "Session idle 45s. Run /extract-facts."
+  │     → /extract-facts runs automatically
+  └── Active OR ran recently → exit 0 → nothing happens
+```
+
+**Files used (all scoped to `$PPID` — fully isolated per session):**
+- `/tmp/tm-activity-$PPID` — last Claude response timestamp for THIS session only
+- `/tmp/tm-extracted-ppid-$PPID` — last extract-facts run for THIS session (30-min cooldown)
+- `/tmp/tm-idle.txt` — global human-readable log of all hook decisions for debugging
+
+**Multi-session behaviour:**
+Each Claude Code session has a unique parent PID (`$PPID`). All state files are scoped to this PID so concurrent sessions never interfere — Session B being active does not prevent Session A from detecting its own idle and firing extract-facts.
+
+**Decisions:**
+- `asyncRewake: true` handles background execution — do NOT use `&` in the command, as it causes the main process to exit 0 immediately and the asyncRewake never fires. This is the documented official mechanism for idle wake-up in Claude Code hooks.
+- `CLAUDE_SESSION_ID` is not injected into hook environments — `$PPID` is used instead as the session identifier.
+- Both the activity file and cooldown file must be `$PPID`-scoped — scoping only one causes cross-session interference (e.g. Session B's responses resetting Session A's idle timer).
+- Plain `echo` output from hooks is silently swallowed — hook output must be JSON `{"systemMessage": "..."}` to surface to the user.
+## extract-bgc — Claude-Native Background Fact Extraction
+
+**Purpose:** Extract facts from past completed sessions using Claude directly (no NerdCompletion key). Complements `/extract-facts` (which handles the current live session) by processing previously closed sessions.
+
+**How it fits alongside `/extract-facts`:**
+```
+/extract-facts (45s idle hook)  → CURRENT session, runs automatically
+extract-bgc (manual or /loop)   → PAST completed sessions only
+```
+
+**Usage:**
+```bash
+team-memory extract-bgc            # process past sessions
+team-memory extract-bgc --dry-run  # preview without writing
+/loop 30m team-memory extract-bgc  # keep running every 30 min
+! team-memory review-pending       # review queued facts in current project
+```
+
+**How it works:**
+1. Reads opted-in project registry — only processes sessions from opted-in repos
+2. Checks each session against two safety gates before processing
+3. Uses `claude --print` for extraction (Claude Code company auth, no API key needed)
+4. Queues extracted facts to `~/.team-memory/pending-facts.json` per project
+5. On next session start: notifies "N facts pending — run `! team-memory review-pending`"
+
+**Session safety — two gates (never touches an active session):**
+
+| Gate | Mechanism | Handles |
+|---|---|---|
+| 1 | `/tmp/tm-active-<uuid>` sentinel | Session actively running |
+| 2a | `/tmp/tm-done-<uuid>` clean-end marker | Clean exit via `/exit` — safe immediately |
+| 2b | File age ≥ 30 minutes | Crash/force-kill — wait before processing |
+
+- `SessionStart` hook creates the active sentinel
+- `SessionEnd` hook deletes sentinel and creates done marker
+- Done marker present → processed immediately (no age wait)
+- No done marker, no sentinel → possible crash → 30-min age required
+
+**Deduplication — no session processed twice:**
+- `processed-sessions-bgc.json` tracks all extract-bgc-processed session UUIDs
+- `SessionEnd` also marks session in `processed-sessions-bgc.json` so sessions handled by `/extract-facts` are never re-queued by extract-bgc
+- extract-bgc checks this file before processing any session
+
+**Pending facts queue (`pending-facts.json`):**
+```json
+{
+  "media-streaming-ui": [
+    { "id": "abc", "content": "...", "tags": [...], "session": "xyz.jsonl" }
+  ]
+}
+```
+Keyed by project — facts from `media-streaming-ui` only surface in `media-streaming-ui` sessions, never cross-project.
+
+**Decisions:**
+- `claude --print` over NerdCompletion: uses existing Claude Code company auth, no separate API key required
+- Manual/loop trigger over automatic spawning: simpler, predictable, no agent orchestration complexity
+- `/extract-facts` (idle hook) handles current session; extract-bgc handles past sessions — clear separation, no overlap
+
 ## Sync Mechanism
 
 - **Standard git push/pull** — no custom sync infra.

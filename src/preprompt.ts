@@ -5,6 +5,8 @@ import { execSync } from "child_process";
 import { queryFacts } from "./query.js";
 import { logSurfaces } from "./surface-logging.js";
 import { isOptedIn } from "./opt-in.js";
+import { isQualifyingPrompt } from "./slack-trigger.js";
+import { enqueuePrompt } from "./slack-queue.js";
 
 export interface PrepromptInput {
   prompt: string;
@@ -41,6 +43,11 @@ function _runPrepromptHook(input: PrepromptInput): PrepromptOutput {
 
   if (!existsSync(indexPath)) {
     return { continue: true };
+  }
+
+  // Silently queue qualifying prompts for extract-slack to process on its next run
+  if (isQualifyingPrompt(prompt)) {
+    try { enqueuePrompt(repoDir, prompt, project); } catch { /* never block the prompt */ }
   }
 
   const results = queryFacts({ indexPath, query: prompt, limit: 5, project });
