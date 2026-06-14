@@ -28,13 +28,16 @@ function resolveHooksDir(): string {
   return join(tmDir, "hooks");
 }
 
-// The installed command in settings.json — short, identifiable, easy to wipe
+// The installed command in settings.json.
+// IMPORTANT: do NOT prefix with "# tm:" — # starts a shell comment and the
+// script would never run. Identification for hook-wiping uses the filename
+// (idle.sh / idle.ps1) which appears in the path.
 function idleExtractCommand(): string {
   const scriptPath = idleHookScriptPath();
   if (process.platform === "win32") {
-    return `${TM_HOOK_ID}idle powershell -ExecutionPolicy Bypass -NonInteractive -File "${scriptPath}"`;
+    return `powershell -ExecutionPolicy Bypass -NonInteractive -File "${scriptPath}"`;
   }
-  return `${TM_HOOK_ID}idle ${scriptPath}`;
+  return scriptPath;
 }
 
 // macOS/Linux bash script — uses $TMPDIR for sentinels (not hardcoded /tmp)
@@ -155,8 +158,12 @@ interface ClaudeSettings {
 function isTeamMemoryHook(group: ClaudeHookGroup): boolean {
   return group.hooks?.some((h) => {
     if (typeof h.command !== "string") return false;
-    // Matches both new-style (# tm: prefix) and old inline commands containing "team-memory"
-    return h.command.startsWith(TM_HOOK_ID) || h.command.includes("team-memory");
+    return (
+      h.command.startsWith(TM_HOOK_ID)      ||  // legacy: old # tm: prefix
+      h.command.includes("team-memory")     ||  // all explicit team-memory commands
+      h.command.includes("idle.sh")         ||  // idle hook (custom TEAM_MEMORY_DIR)
+      h.command.includes("idle.ps1")            // idle hook on Windows
+    );
   }) ?? false;
 }
 
@@ -236,7 +243,7 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
       type: "command",
       command: idleExtractCommand(),
       asyncRewake: true,
-      rewakeMessage: "Session idle for 2 minutes. Please run /extract-facts now to save any valuable insights from this session.",
+      rewakeMessage: "/extract-facts",
     }],
   });
 
