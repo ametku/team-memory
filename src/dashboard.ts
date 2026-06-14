@@ -151,8 +151,8 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function rejectCmd(factId: string, repoDir: string): string {
-  return `TEAM_MEMORY_DIR=${repoDir} team-memory reject ${factId}`;
+function rejectCmd(factId: string, _repoDir: string): string {
+  return `team-memory reject ${factId}`;
 }
 
 function catFromTags(tags: string[]): string {
@@ -357,7 +357,7 @@ var facts=d.facts,authors=d.authors,tagIndex=d.tagIndex,tagCooc=d.tagCooccurrenc
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmtDate(s){return s?new Date(s).toLocaleDateString():'—'}
 
-function rejectCmd(id){return'TEAM_MEMORY_DIR='+d.repoDir+' team-memory reject '+id}
+function rejectCmd(id){return'team-memory reject '+id}
 
 function catFromTags(tags){var t=tags.find(function(t){return t.startsWith('category:')});return t?t.slice(9):''}
 function kwTags(tags){return tags.filter(function(t){return!t.startsWith('category:')})}

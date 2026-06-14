@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, appendFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { addFact } from "./add.js";
-import { rejectFact } from "./reject.js";
+import { rejectFacts } from "./reject.js";
 import { queryFacts } from "./query.js";
 import { rebuildIndex } from "./merged-index.js";
 import { pruneFacts } from "./prune.js";
@@ -51,7 +51,7 @@ Usage:
   ! team-memory review-pending   Review + approve facts queued by extract-bgc/slack
   ! team-memory query <text>     Search facts (--project <name> to scope, --limit N)
   ! team-memory add <content>    Add a fact manually (--project <p> --tags '[...]')
-  ! team-memory reject <id>      Mark a fact as incorrect
+  ! team-memory reject <id> [id2 id3 ...]  Mark one or more facts as incorrect
   ! team-memory dashboard        Generate + open the HTML fact browser
   ! team-memory opt-in           Opt current project in
 
@@ -149,17 +149,24 @@ function main(): void {
   }
 
   if (command === "reject") {
-    const factId = commandArgs[0];
-    if (!factId) {
-      process.stderr.write("Error: <fact_id> is required\n");
+    const factIds = commandArgs.filter(a => !a.startsWith("--"));
+    if (factIds.length === 0) {
+      process.stderr.write("Error: at least one <fact_id> is required\n");
+      process.stderr.write("Usage: team-memory reject <id1> [id2 id3 ...]\n");
       process.exit(1);
     }
     const repoDir = resolveRepoDir();
     const developer = getDeveloperName();
     try {
-      const result = rejectFact({ factId, repoDir, developer });
-      const preview = result.content.length > 60 ? result.content.slice(0, 60) + "..." : result.content;
-      process.stdout.write(`Rejected fact ${factId}: ${preview}\n`);
+      const result = rejectFacts({ factIds, repoDir, developer });
+      for (const r of result.rejected) {
+        const preview = r.content.length > 60 ? r.content.slice(0, 60) + "..." : r.content;
+        process.stdout.write(`Rejected ${r.id}: ${preview}\n`);
+      }
+      for (const id of result.notFound) {
+        process.stderr.write(`Not found: ${id}\n`);
+      }
+      if (result.notFound.length > 0 && result.rejected.length === 0) process.exit(1);
     } catch (e: any) {
       process.stderr.write(`Error: ${e.message}\n`);
       process.exit(1);

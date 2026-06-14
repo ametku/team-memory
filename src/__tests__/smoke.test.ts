@@ -253,7 +253,7 @@ describe("team-memory reject", () => {
         env: { ...process.env, TEAM_MEMORY_DIR: dir, TEAM_MEMORY_DEVELOPER: "testdev" },
       },
     );
-    expect(rejectOutput).toContain(`Rejected fact ${factId}`);
+    expect(rejectOutput).toContain(`Rejected ${factId}`);
     expect(rejectOutput).toContain("always run lint before push");
   });
 
@@ -274,7 +274,7 @@ describe("team-memory reject", () => {
       });
       expect.fail("should have thrown");
     } catch (e: any) {
-      expect(e.stderr.toString()).toContain("Fact not found");
+      expect(e.stderr.toString()).toContain("Not found");
     }
   });
 });
