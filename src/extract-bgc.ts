@@ -143,11 +143,14 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
 
   let totalFacts = 0;
 
-  for (const file of toProcess) {
+  for (let i = 0; i < toProcess.length; i++) {
+    const file = toProcess[i];
     const uuid = basename(file);
     const project = deriveProjectFromEncoded(file, projectPaths);
-
-    log(`processing ${uuid} (project: ${project})`);
+    const pct = Math.round((i / toProcess.length) * 100);
+    const filled = Math.round(pct / 5);
+    const bar = "█".repeat(filled).padEnd(20, "░");
+    log(`[${i + 1}/${toProcess.length}] ${bar} ${pct}% | ${project}`);
 
     if (dryRun) {
       process.stdout.write(`[dry-run] Session: ${file}\n`);

@@ -53,11 +53,15 @@ export async function runExtractSlack({ dryRun }: { dryRun: boolean }): Promise<
     return;
   }
 
-  log(`found ${pending.length} pending prompt(s) to search via Slack MCP`);
+  const items = pending.slice(0, 20);
+  log(`found ${items.length} pending prompt(s) to search via Slack MCP`);
   let totalFacts = 0;
 
-  for (const item of pending.slice(0, 20)) {
-    log(`searching Slack for: "${item.prompt.slice(0, 80)}"`);
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const pct = Math.round((i / items.length) * 100);
+    const bar = "█".repeat(Math.round(pct / 5)).padEnd(20, "░");
+    log(`[${i + 1}/${items.length}] ${bar} ${pct}% | "${item.prompt.slice(0, 60)}"`);
 
     const prompt = `${SYSTEM_PROMPT}\n\nDeveloper query: ${JSON.stringify(item.prompt)}`;
     const facts = invokeClaudeForFacts(prompt) as Array<{ content: string; tags: string[]; slack_url?: string }>;
