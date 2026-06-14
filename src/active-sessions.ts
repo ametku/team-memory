@@ -1,7 +1,11 @@
 import { existsSync, statSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join, basename } from "path";
+import { tmpdir } from "os";
 
-const SENTINEL_DIR = "/tmp";
+// Sentinels are intentionally in the system temp dir — they are ephemeral process
+// markers that auto-clean on reboot (protecting against crashed sessions).
+// All persistent logs and state go in TEAM_MEMORY_DIR instead.
+const SENTINEL_DIR = tmpdir();
 const ACTIVE_PREFIX = "tm-active-";    // session is running right now
 const DONE_PREFIX   = "tm-done-";      // session ended cleanly via SessionEnd
 const STALE_HOURS = 4;                 // active sentinel older than this → treat as stale (crash)

@@ -47,11 +47,10 @@ function findJsonlFilesForEncodedPaths(encodedPaths: string[]): string[] {
 
 function deriveProjectFromEncoded(jsonlPath: string, projectPaths: string[]): string {
   const encoded = basename(dirname(jsonlPath));
-  // Find matching project root
   for (const projectPath of projectPaths) {
-    if (projectPath.replace(/\//g, "-") === encoded) {
-      return basename(projectPath);
-    }
+    // Match against the same encoding used in opt-in.registerProject (handles Windows \ too)
+    const candidate = projectPath.replace(/[/\\]/g, "-").replace(/^([A-Za-z])-/, "$1");
+    if (candidate === encoded) return basename(projectPath);
   }
   return encoded.split("-").at(-1) ?? "unknown";
 }

@@ -1,7 +1,4 @@
-import { writeFileSync, rmSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 // claude --print runs with Bash tool access. When session transcripts contain
 // code fragments, Claude sometimes executes them as shell commands, producing
@@ -25,20 +22,23 @@ export function extractLastJson(output: string): string | null {
   return last;
 }
 
-// Pipe a prompt file through `claude --print` and return parsed JSON facts.
+// Pipe a prompt directly to `claude --print` via stdin using spawnSync.
+// No shell, no temp file, no platform-specific pipe syntax — works on
+// macOS, Linux, and Windows.
 // Returns [] on any error (timeout, parse failure, claude not found).
 export function invokeClaudeForFacts(
   prompt: string,
   timeoutMs = 120000,
 ): { content: string; tags: string[] }[] {
-  const tmpFile = join(tmpdir(), `tm-claude-${Date.now()}.txt`);
   try {
-    writeFileSync(tmpFile, prompt, "utf-8");
-    const result = execSync(
-      `cat ${JSON.stringify(tmpFile)} | claude --print 2>/dev/null`,
-      { encoding: "utf-8", timeout: timeoutMs },
-    );
-    const stripped = result.trim()
+    const result = spawnSync("claude", ["--print"], {
+      input: prompt,
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    if (result.error || !result.stdout) return [];
+    const stripped = result.stdout.trim()
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```\s*$/i, "")
       .trim();
@@ -47,7 +47,5 @@ export function invokeClaudeForFacts(
     return Array.isArray(obj.facts) ? obj.facts : [];
   } catch {
     return [];
-  } finally {
-    try { rmSync(tmpFile); } catch { /* ok */ }
   }
 }

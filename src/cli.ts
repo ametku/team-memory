@@ -389,35 +389,54 @@ function main(): void {
   if (command === "review-pending") {
     const repoDir = resolveRepoDir();
     const project = detectProject();
-    if (!project) {
-      process.stderr.write("Error: not in a git repository\n");
-      process.exit(1);
-    }
-    const pending = getPendingFacts(repoDir, project);
+    // Collect pending facts: current project + cross-project keys (_slack, _global)
+    // so Slack-extracted facts are visible regardless of which project dir you're in.
+    const projectFacts = project ? getPendingFacts(repoDir, project) : [];
+    const slackFacts   = getPendingFacts(repoDir, "_slack");
+    const globalFacts  = getPendingFacts(repoDir, "_global");
+    const pending = [...projectFacts, ...slackFacts, ...globalFacts];
     if (pending.length === 0) {
-      process.stdout.write(`No pending facts for ${project}.\n`);
+      process.stdout.write(`No pending facts${project ? ` for ${project}` : ""}.\n`);
       return;
     }
     (async () => {
       const { createInterface } = await import("readline");
-      process.stdout.write(`${pending.length} pending fact(s) for ${project}:\n\n`);
-      const approved: string[] = [];
-      const rejected: string[] = [];
+      process.stdout.write(`${pending.length} pending fact(s):\n\n`);
+      const approvedByBucket = new Map<string, string[]>();
+      const rejectedByBucket = new Map<string, string[]>();
       for (let i = 0; i < pending.length; i++) {
         const f = pending[i];
-        process.stdout.write(`Fact ${i + 1}/${pending.length}:\n  ${f.content}\n  tags: ${JSON.stringify(f.tags)}\n  from: ${f.session}\n`);
+        // Determine which bucket this fact came from
+        const bucket = projectFacts.includes(f) ? (project ?? "_global")
+                     : slackFacts.includes(f)   ? "_slack"
+                     : "_global";
+        const factProject = bucket === "_slack" || bucket === "_global" ? (project ?? bucket) : bucket;
+        process.stdout.write(`Fact ${i + 1}/${pending.length} [${bucket}]:\n  ${f.content}\n  tags: ${JSON.stringify(f.tags)}\n  from: ${f.session}\n`);
         const answer = await new Promise<string>(res => {
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           rl.question("Save? (y/n): ", a => { rl.close(); res(a.trim().toLowerCase()); });
         });
         if (answer === "y") {
-          approved.push(f.id);
-          execFileSync("team-memory", ["add", f.content, "--project", project, "--tags", JSON.stringify(f.tags)], { stdio: "inherit" });
-        } else { rejected.push(f.id); }
+          if (!approvedByBucket.has(bucket)) approvedByBucket.set(bucket, []);
+          approvedByBucket.get(bucket)!.push(f.id);
+          execFileSync("team-memory", ["add", f.content, "--project", factProject, "--tags", JSON.stringify(f.tags)], { stdio: "inherit" });
+        } else {
+          if (!rejectedByBucket.has(bucket)) rejectedByBucket.set(bucket, []);
+          rejectedByBucket.get(bucket)!.push(f.id);
+        }
       }
-      removePendingFacts(repoDir, project, [...approved, ...rejected]);
-      process.stdout.write(`\nDone. ${approved.length} saved, ${rejected.length} rejected.\n`);
-      if (approved.length > 0) {
+      // Remove reviewed facts from each bucket
+      for (const [bucket, ids] of [...approvedByBucket, ...rejectedByBucket]) {
+        const allIds = [
+          ...(approvedByBucket.get(bucket) ?? []),
+          ...(rejectedByBucket.get(bucket) ?? []),
+        ];
+        removePendingFacts(repoDir, bucket, allIds);
+      }
+      const totalApproved = [...approvedByBucket.values()].flat().length;
+      const totalRejected = [...rejectedByBucket.values()].flat().length;
+      process.stdout.write(`\nDone. ${totalApproved} saved, ${totalRejected} rejected.\n`);
+      if (totalApproved > 0) {
         process.stdout.write(`Pushing to team...\n`);
         execFileSync("team-memory", ["sync", "--push"], { stdio: "inherit" });
       }

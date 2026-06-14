@@ -14,26 +14,32 @@ const SESSION_END_COMMAND =
 // wipeAllTeamMemoryHooks matches this to safely remove only our hooks.
 const TM_HOOK_ID = "# tm:";
 
-// The idle hook is installed as a dedicated script at ~/.team-memory/hooks/idle.sh
-// so settings.json contains only one short line, not a 400-char inline command.
-// This prevents collision with other Stop hooks (e.g. jarvis.sh) and makes
-// deduplication reliable via script path matching.
-const IDLE_HOOK_SCRIPT_NAME = "idle.sh";
+// The idle hook is a platform-specific script in TEAM_MEMORY_DIR/hooks/
+// macOS/Linux: idle.sh (bash)   Windows: idle.ps1 (PowerShell)
+// Settings.json gets one short identifiable line — no 400-char inline blob.
+function idleScriptName(): string {
+  return process.platform === "win32" ? "idle.ps1" : "idle.sh";
+}
 function idleHookScriptPath(): string {
-  return join(resolveHooksDir(), IDLE_HOOK_SCRIPT_NAME);
+  return join(resolveHooksDir(), idleScriptName());
 }
 function resolveHooksDir(): string {
   const tmDir = process.env.TEAM_MEMORY_DIR ?? join(homedir(), ".team-memory");
   return join(tmDir, "hooks");
 }
 
-// The installed command — short, identifiable, easy to wipe cleanly
+// The installed command in settings.json — short, identifiable, easy to wipe
 function idleExtractCommand(): string {
-  return `${TM_HOOK_ID}idle ${idleHookScriptPath()}`;
+  const scriptPath = idleHookScriptPath();
+  if (process.platform === "win32") {
+    return `${TM_HOOK_ID}idle powershell -ExecutionPolicy Bypass -NonInteractive -File "${scriptPath}"`;
+  }
+  return `${TM_HOOK_ID}idle ${scriptPath}`;
 }
 
-// The actual script content written to ~/.team-memory/hooks/idle.sh
-const IDLE_SCRIPT_CONTENT = `#!/bin/sh
+// macOS/Linux bash script — uses $TMPDIR for sentinels (not hardcoded /tmp)
+// Logs go to TEAM_MEMORY_DIR/idle.txt (all persistent files stay in the repo clone)
+const IDLE_SCRIPT_SH = `#!/bin/sh
 # team-memory idle extract-facts hook
 # Fires /extract-facts after IDLE_SECS idle + COOLDOWN_SECS per-session cooldown.
 # Scoped via PPID so multiple concurrent sessions never interfere.
@@ -42,8 +48,9 @@ IDLE_SECS=120       # 2 minutes idle before firing
 COOLDOWN_SECS=600   # 10 minutes between fires per session
 
 TS=$(date +%s)
-ACTIVITY="/tmp/tm-activity-$SPID"
-SESSION_FLAG="/tmp/tm-extracted-ppid-$SPID"
+TMPBASE="\${TMPDIR:-/tmp}"
+ACTIVITY="$TMPBASE/tm-activity-$SPID"
+SESSION_FLAG="$TMPBASE/tm-extracted-ppid-$SPID"
 LOGFILE="\${TEAM_MEMORY_DIR:-$HOME/.team-memory}/idle.txt"
 
 echo $TS > "$ACTIVITY"
@@ -62,6 +69,40 @@ if [ "$CURRENT" = "$TS" ] && [ $ELAPSED -ge $COOLDOWN_SECS ]; then
 else
   echo "[team-memory] $(date '+%H:%M:%S') [$SPID] skipping (active or cooldown active, elapsed=\${ELAPSED}s)" >> "$LOGFILE"
 fi
+exit 0
+`;
+
+// Windows PowerShell equivalent — uses $env:TEMP for sentinels
+const IDLE_SCRIPT_PS1 = `# team-memory idle extract-facts hook (Windows PowerShell)
+# Fires /extract-facts after $IdleSecs idle + $CooldownSecs per-session cooldown.
+$SPID = $PID
+$IdleSecs = 120
+$CooldownSecs = 600
+$TmDir = if ($env:TEAM_MEMORY_DIR) { $env:TEAM_MEMORY_DIR } else { Join-Path $HOME ".team-memory" }
+$LogFile = Join-Path $TmDir "idle.txt"
+$Activity = Join-Path $env:TEMP "tm-activity-$SPID"
+$SessionFlag = Join-Path $env:TEMP "tm-extracted-ppid-$SPID"
+
+$TS = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+Set-Content -Path $Activity -Value $TS -Encoding UTF8 -Force
+$ts = Get-Date -Format "HH:mm:ss"
+Add-Content -Path $LogFile -Value "[team-memory] $ts [$SPID] hook started, waiting $($IdleSecs)s..."
+
+Start-Sleep -Seconds $IdleSecs
+
+$Current = if (Test-Path $Activity) { (Get-Content $Activity -Raw).Trim() } else { "" }
+$Last    = if (Test-Path $SessionFlag) { [long](Get-Content $SessionFlag -Raw).Trim() } else { 0 }
+$Now     = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$Elapsed = $Now - $Last
+
+$ts = Get-Date -Format "HH:mm:ss"
+if ($Current -eq "$TS" -and $Elapsed -ge $CooldownSecs) {
+  Add-Content -Path $LogFile -Value "[team-memory] $ts [$SPID] idle $($IdleSecs)s + cooldown elapsed — firing extract-facts"
+  Set-Content -Path $SessionFlag -Value $Now -Encoding UTF8 -Force
+  exit 2
+} else {
+  Add-Content -Path $LogFile -Value "[team-memory] $ts [$SPID] skipping (active or cooldown active, elapsed=$($Elapsed)s)"
+}
 exit 0
 `;
 
@@ -180,13 +221,15 @@ export function installClaudeHook(input: InstallClaudeHookInput = {}): InstallCl
   addHook(settings.hooks.SessionEnd as ClaudeHookGroup[], { type: "command", command: SESSION_DEACTIVATE_COMMAND });
   addHook(settings.hooks.SessionEnd as ClaudeHookGroup[], { type: "command", command: SESSION_END_COMMAND });
 
-  // Write the idle script to ~/.team-memory/hooks/idle.sh
-  // Settings.json gets a short identifiable command instead of 400-char inline blob
+  // Write the platform-appropriate idle script to TEAM_MEMORY_DIR/hooks/
   const hooksDir = resolveHooksDir();
   mkdirSync(hooksDir, { recursive: true });
   const scriptPath = idleHookScriptPath();
-  writeFileSync(scriptPath, IDLE_SCRIPT_CONTENT);
-  try { chmodSync(scriptPath, 0o755); } catch { /* ok */ }
+  const scriptContent = process.platform === "win32" ? IDLE_SCRIPT_PS1 : IDLE_SCRIPT_SH;
+  writeFileSync(scriptPath, scriptContent);
+  if (process.platform !== "win32") {
+    try { chmodSync(scriptPath, 0o755); } catch { /* ok */ }
+  }
 
   (settings.hooks.Stop as ClaudeHookGroupExtended[]).push({
     hooks: [{

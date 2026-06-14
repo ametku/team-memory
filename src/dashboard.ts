@@ -522,7 +522,9 @@ export function generateDashboard(input: DashboardInput): DashboardResult {
   writeFileSync(input.outputPath, html, "utf-8");
 
   if (input.openBrowser !== false) {
-    const opener = process.platform === "darwin" ? "open" : "xdg-open";
+    const opener = process.platform === "darwin" ? "open"
+                 : process.platform === "win32"   ? "start"
+                 : "xdg-open";
     try { execSync(`${opener} "${input.outputPath}"`, { stdio: "ignore" }); } catch { /* ignore */ }
   }
 

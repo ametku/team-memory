@@ -44,7 +44,10 @@ function saveRegistry(repoDir: string, registry: Registry): void {
 
 export function registerProject(repoDir: string, projectRoot: string): void {
   const resolved = realpath(projectRoot);
-  const encoded = resolved.replace(/\//g, "-");
+  // Replace both forward and backward slashes (Windows uses backslashes),
+  // and strip the drive-letter colon on Windows (C: → C)
+  // so the encoded name matches what Claude Code uses for session directories.
+  const encoded = resolved.replace(/[/\\]/g, "-").replace(/^([A-Za-z])-/, "$1");
   const registry = loadRegistry(repoDir);
   registry[resolved] = encoded;
   saveRegistry(repoDir, registry);
