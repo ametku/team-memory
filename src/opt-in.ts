@@ -6,16 +6,24 @@ function realpath(p: string): string {
 }
 
 const MARKER_PATH = ".claude/team-memory.md";
+const LOCAL_DIR_FILE = ".claude/.team-memory-dir";
 const REGISTRY_FILE = "opted-in-projects.json";
 
 const MARKER_CONTENT = `# team-memory opt-in
 
 This project is opted into team-memory. Claude sessions here feed the shared team fact store.
 
-- Run \`team-memory extract-bg\` to extract facts from past Claude sessions in this project.
-- Run \`team-memory extract-slack\` to extract facts from Slack threads matching your queries.
-- Commit this file so all teammates are opted in automatically.
+Commit this file — teammates are opted in automatically when they pull it.
+
+After pulling, each teammate runs once from this directory:
+  team-memory opt-in
+
+This registers the project locally and creates .claude/.team-memory-dir (gitignored)
+so all team-memory commands work from this directory without setting TEAM_MEMORY_DIR.
 `;
+
+// Gitignore entry for the local dir pointer file
+const GITIGNORE_ENTRY = ".team-memory-dir\n";
 
 export function isOptedIn(projectRoot: string): boolean {
   return existsSync(join(realpath(projectRoot), MARKER_PATH));
@@ -23,11 +31,30 @@ export function isOptedIn(projectRoot: string): boolean {
 
 export function createOptInMarker(projectRoot: string): boolean {
   const resolved = realpath(projectRoot);
+  const claudeDir = join(resolved, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+
   const markerPath = join(resolved, MARKER_PATH);
-  if (existsSync(markerPath)) return false;
-  mkdirSync(join(resolved, ".claude"), { recursive: true });
-  writeFileSync(markerPath, MARKER_CONTENT);
-  return true;
+  const created = !existsSync(markerPath);
+  if (created) writeFileSync(markerPath, MARKER_CONTENT);
+  return created;
+}
+
+// Write the machine-local dir pointer so commands auto-discover TEAM_MEMORY_DIR
+// when run from this project. This file is gitignored — each developer gets
+// their own copy pointing to their local team-memory clone.
+export function writeLocalDirPointer(projectRoot: string, repoDir: string): void {
+  const resolved = realpath(projectRoot);
+  const claudeDir = join(resolved, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(join(resolved, LOCAL_DIR_FILE), repoDir + "\n");
+
+  // Add .team-memory-dir to .claude/.gitignore so the local file isn't committed
+  const gitignorePath = join(claudeDir, ".gitignore");
+  const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
+  if (!existing.includes(".team-memory-dir")) {
+    writeFileSync(gitignorePath, existing + GITIGNORE_ENTRY);
+  }
 }
 
 type Registry = Record<string, string>;

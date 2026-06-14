@@ -23,7 +23,7 @@ import { runExtractBgc } from "./extract-bgc.js";
 import { getPendingFacts, removePendingFacts, markSessionHandledByExtractFacts } from "./pending-facts.js";
 import { markSessionActive, markSessionCleanEnd } from "./active-sessions.js";
 import { generateDashboard } from "./dashboard.js";
-import { createOptInMarker, registerProject, isOptedIn } from "./opt-in.js";
+import { createOptInMarker, registerProject, isOptedIn, writeLocalDirPointer } from "./opt-in.js";
 import { updateInstallation } from "./update.js";
 import { runExtractSlack } from "./extract-slack.js";
 
@@ -387,12 +387,16 @@ function main(): void {
     const repoDir = resolveRepoDir();
     const markerCreated = createOptInMarker(projectRoot);
     registerProject(repoDir, projectRoot);
+    writeLocalDirPointer(projectRoot, repoDir);
     if (markerCreated) {
       process.stdout.write(`Opted in: ${projectRoot}\n`);
       process.stdout.write(`Created: ${projectRoot}/.claude/team-memory.md\n`);
-      process.stdout.write(`Tip: commit .claude/team-memory.md so teammates are opted in too.\n`);
+      process.stdout.write(`Created: ${projectRoot}/.claude/.team-memory-dir (gitignored — enables auto-discovery)\n`);
+      process.stdout.write(`\nCommit .claude/team-memory.md so teammates are opted in.\n`);
+      process.stdout.write(`Teammates run 'team-memory opt-in' once after pulling to get their own .team-memory-dir.\n`);
     } else {
       process.stdout.write(`Already opted in: ${projectRoot}\n`);
+      process.stdout.write(`Updated: ${projectRoot}/.claude/.team-memory-dir → ${repoDir}\n`);
     }
     return;
   }

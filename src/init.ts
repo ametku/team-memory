@@ -5,7 +5,7 @@ import { join } from "path";
 import { assertDirNotExists, postCloneSetup, PostCloneSetupResult } from "./setup.js";
 import { getDeveloperName } from "./developer.js";
 import { installClaudeHook, installClaudeSkill } from "./claude-hook.js";
-import { createOptInMarker, registerProject } from "./opt-in.js";
+import { createOptInMarker, registerProject, writeLocalDirPointer } from "./opt-in.js";
 import { saveCliSource } from "./update.js";
 
 export interface InitInput {

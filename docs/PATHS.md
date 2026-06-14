@@ -1,242 +1,174 @@
 # team-memory: Paths and Configuration
 
-## The one env var you need to know
+## How the CLI finds your team-memory repo
+
+When you run any `team-memory` command, it resolves where your shared repo is in this order:
 
 ```
-TEAM_MEMORY_DIR    path to your team-memory git clone
+1. TEAM_MEMORY_DIR env var                  explicit, always wins
+2. .claude/.team-memory-dir in current repo written by `team-memory opt-in`
+3. ~/.team-memory                           default fallback
 ```
 
-That's it. Everything else is derived from this.
-
-If you don't set it, every command defaults to `~/.team-memory`. If you set it, every command uses that path instead — hooks, logs, index, pending facts, all of it.
+**The practical implication:** once you've run `team-memory opt-in` in a project, all `team-memory` commands work from that project directory without any env var. No prefixing, no extra setup.
 
 ---
 
-## Setting TEAM_MEMORY_DIR
+## Default setup (most users)
 
-**Temporary (one terminal session):**
+If you joined with the default path:
 ```bash
-export TEAM_MEMORY_DIR=~/my-team-memory
-team-memory query "something"
+team-memory join https://github.com/org/team-memory.git
 ```
 
-**Persistent (recommended — add to `~/.zshrc` or `~/.bashrc`):**
+Your team-memory repo is at `~/.team-memory`. Every command uses it automatically. You don't need to set anything.
+
+---
+
+## Custom path setup
+
+If you want the repo somewhere visible (or have multiple team repos):
+```bash
+team-memory join https://github.com/org/team-memory.git --dir ~/my-team-memory
+```
+
+Now add it to your shell profile so every terminal and Claude Code picks it up:
 ```bash
 echo 'export TEAM_MEMORY_DIR=~/my-team-memory' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Once it's in your shell profile, every terminal and every tool that inherits env vars — including Claude Code — uses the right path automatically. You never have to think about it again.
-
-**What happens if you don't set it:**
-- Commands work fine — they use `~/.team-memory`
-- The hooks installed by `join`/`init` also default to `~/.team-memory`
-- Consistent as long as you only have one team-memory repo
-
-**What happens if you set it inconsistently** (e.g. set in one terminal but not another):
-- Commands in different terminals talk to different repos
-- Claude Code uses whatever env var the process that launched it had
-- Facts get silently split across two locations
-- Fix: set it in your shell profile and reload
+After that, every command — in any directory — uses `~/my-team-memory`.
 
 ---
 
-## Running commands from different directories
+## Opted-in repos: commands just work
 
-team-memory commands work from **any directory**. They always read `TEAM_MEMORY_DIR` from the env var (or default), never from the current directory.
-
-**Exception: commands that involve your project repo.**
-Some commands detect the current directory's git repo to scope things:
-
-| Command | Uses current directory for | Needs to be run from |
-|---|---|---|
-| `opt-in` | Detect which project to register | Inside your project repo |
-| `preprompt-hook` | Detect project name + check opt-in marker | Inside your project repo (Claude Code does this) |
-| `extract-bgc` | Nothing — uses registry | Anywhere |
-| `review-pending` | Detect project to show pending facts | Inside your project repo |
-| `add` | Nothing | Anywhere |
-| `query` | Nothing (use `--project` to scope) | Anywhere |
-| `sync`, `dashboard`, `prune` | Nothing | Anywhere |
-| `rebuild-index` | Nothing | Anywhere |
-
----
-
-## Opted-in repos vs non-opted-in repos
-
-### What opt-in does
-
-When you run `team-memory opt-in` from a project directory, two things happen:
-
-1. Creates `.claude/team-memory.md` in the project root
-2. Registers the project in `TEAM_MEMORY_DIR/opted-in-projects.json`
-
-### What changes when a project is opted in
-
-| Feature | Opted-in project | Non-opted-in project |
-|---|---|---|
-| `preprompt-hook` injects facts | ✅ | ❌ silently skips |
-| `extract-bgc` processes sessions | ✅ | ❌ sessions ignored |
-| `extract-slack` queues prompts | ✅ | ❌ skips |
-| `review-pending` shows facts | ✅ | ❌ nothing to show |
-| `add`, `query`, `reject` | ✅ works anywhere | ✅ works anywhere |
-| `sync`, `dashboard`, `prune` | ✅ works anywhere | ✅ works anywhere |
-
-### Committing the opt-in marker
-
+When you opt in a project:
 ```bash
 cd ~/repos/my-service
 team-memory opt-in
-git add .claude/team-memory.md
-git commit -m "chore: opt into team-memory"
-git push
 ```
 
-Commit `.claude/team-memory.md` so teammates get it when they pull — they don't need to run `opt-in` themselves, the marker file is enough for `preprompt-hook`. But they do need to register the project locally for `extract-bgc`:
+Two things are created:
+- `.claude/team-memory.md` — the opt-in marker (commit this)
+- `.claude/.team-memory-dir` — your local path pointer (gitignored, do not commit)
+
+From this point on, any `team-memory` command run from `~/repos/my-service` auto-discovers the right repo — no `TEAM_MEMORY_DIR` needed:
 
 ```bash
-# Teammate needs to re-register after pulling (one-time):
 cd ~/repos/my-service
-team-memory opt-in    # sees marker already exists, just updates local registry
+team-memory query "database connection"     # works
+team-memory add "Always use X" ...          # works
+team-memory review-pending                  # works
+team-memory dashboard                       # works
 ```
 
-### Opting in multiple projects
+### What teammates need to do
+
+`.claude/team-memory.md` is committed — the opt-in is global. But `.claude/.team-memory-dir` is machine-local (gitignored). After pulling, teammates run once:
 
 ```bash
-cd ~/repos/service-a   && team-memory opt-in
-cd ~/repos/service-b   && team-memory opt-in
-cd ~/repos/mobile-app  && team-memory opt-in
+cd ~/repos/my-service
+team-memory opt-in    # creates their own .team-memory-dir pointing to their local repo
 ```
 
-All feed the same `TEAM_MEMORY_DIR`. Facts are tagged with `--project <basename>` automatically so they stay scoped. When you're in `service-a` and query, you get `service-a` facts first.
+---
+
+## What changes when a project is opted in
+
+| Feature | Opted-in | Not opted-in |
+|---|---|---|
+| `preprompt-hook` injects facts | ✅ | ❌ silently skips |
+| `extract-bgc` processes sessions | ✅ | ❌ ignored |
+| `extract-slack` queues prompts | ✅ | ❌ skips |
+| `review-pending` | ✅ shows facts | ❌ nothing to show |
+| `add`, `query`, `reject` | ✅ | ✅ works anywhere |
+| `sync`, `dashboard`, `prune` | ✅ | ✅ works anywhere |
+
+---
+
+## Dashboard
+
+`team-memory dashboard` reads from `TEAM_MEMORY_DIR` — not from the project you're currently in. It shows all facts from all teammates across all projects.
+
+- Works from any directory, opted-in or not
+- Output file: `TEAM_MEMORY_DIR/dashboard.html` (never in your project repo)
+- Filter by project inside the dashboard UI after opening it
+
+```bash
+# From anywhere:
+team-memory dashboard
+
+# From an opted-in project (auto-discovers TEAM_MEMORY_DIR):
+cd ~/repos/my-service
+team-memory dashboard
+```
+
+---
+
+## Commands and current directory
+
+Most commands don't care where you run them — they read `TEAM_MEMORY_DIR` from the env var or `.team-memory-dir` file.
+
+Commands that use the current directory:
+
+| Command | Why it needs CWD | Run from |
+|---|---|---|
+| `opt-in` | Registers the current project | Your project root |
+| `review-pending` | Detects project to show pending facts | Your project root |
+| `preprompt-hook` | Detects project name + checks opt-in | Your project (Claude Code does this) |
+
+Commands that don't care about CWD:
+
+`query`, `add`, `reject`, `sync`, `dashboard`, `prune`, `rebuild-index`, `extract-bgc`, `extract-slack`, `update`
 
 ---
 
 ## What lives where
 
-### In TEAM_MEMORY_DIR (your shared git clone)
+### TEAM_MEMORY_DIR (shared git repo)
 
 ```
 TEAM_MEMORY_DIR/
 │
-│  ── in git (synced with teammates) ──────────────────────
-├── facts/
-│   ├── facts-<yourname>.db          your authored facts
-│   └── facts-<teammate>.db          their authored facts
-├── interactions/
-│   ├── interactions-<yourname>.db   your surface counts + rejects
-│   └── interactions-<teammate>.db   their surface counts + rejects
-├── config.yaml                      developer name, cli_source path
+│  ── committed and synced with teammates ──────────────
+├── facts/facts-<name>.db            your authored facts
+├── interactions/interactions-<name>.db  your surface counts + rejects
+├── config.yaml                      developer name, cli_source
 │
-│  ── local only (never committed) ────────────────────────
-├── merged_index.db                  FTS5 query index, rebuilt from facts/
+│  ── local only, never committed ──────────────────────
+├── merged_index.db                  FTS5 query index (rebuilt from facts/)
 ├── dashboard.html                   generated on demand
 ├── opted-in-projects.json           your machine's project registry
-├── slack-queue.json                 prompts queued for extract-slack
+├── slack-queue.json                 prompts queued for Slack search
 ├── pending-facts.json               facts awaiting your review
-├── processed-sessions-bgc.json      dedup list for extract-bgc
-├── hooks/
-│   ├── idle.sh                      idle hook script (macOS/Linux)
-│   └── idle.ps1                     idle hook script (Windows)
+├── processed-sessions-bgc.json      extract-bgc dedup list
+├── hooks/idle.sh  (or idle.ps1)     idle hook script
 │
-│  ── logs (never committed) ───────────────────────────────
-├── idle.txt                         one line per Claude response (hook fired/skipped)
-├── bgc.txt                          one line per fact queued by extract-bgc
-├── slack.txt                        one line per fact queued by extract-slack
-└── hooks.log                        errors from Claude Code hooks
+│  ── logs, never committed ────────────────────────────
+├── idle.txt      one line per Claude response (hook fired/skipped)
+├── bgc.txt       one line per fact queued by extract-bgc
+├── slack.txt     one line per fact queued by extract-slack
+└── hooks.log     Claude Code hook errors (check here if hooks misbehave)
 ```
 
-### In each opted-in project repo
+### Each opted-in project
 
 ```
 my-project/
 └── .claude/
-    └── team-memory.md               opt-in marker — commit this
+    ├── team-memory.md        opt-in marker — COMMIT this
+    ├── .gitignore            contains ".team-memory-dir"
+    └── .team-memory-dir      your local path pointer — DO NOT commit
 ```
 
-That's the only file team-memory puts in your project. Nothing else.
-
-### In Claude Code's config dir
+### Claude Code config
 
 ```
 ~/.claude/
-├── settings.json        has the 5 team-memory hooks (added by join/update)
-└── skills/
-    └── extract-facts/
-        └── SKILL.md     the /extract-facts skill (added by join/update)
-```
-
----
-
-## How each command finds the team-memory repo
-
-Every command calls `resolveRepoDir()` which returns:
-```
-TEAM_MEMORY_DIR env var  →  if set, use it
-~/.team-memory            →  default fallback
-```
-
-And `resolveIndexPath()` returns:
-```
-TEAM_MEMORY_INDEX_PATH env var  →  if set, use it
-~/.cache/team-memory/merged_index.db  →  default fallback
-```
-
-You rarely need `TEAM_MEMORY_INDEX_PATH`. It's there if you want the index in a different location from the data.
-
----
-
-## Using the same commands across different repos
-
-You're working in `service-a` and want to query facts from `service-b`:
-
-```bash
-# Scoped to current project (auto-detected):
-! team-memory query "database connection"
-
-# Scoped to a specific project explicitly:
-! team-memory query "database connection" --project service-b
-
-# No project scope — searches everything:
-! team-memory query "database connection" --limit 10
-```
-
-Adding a fact while in any directory:
-
-```bash
-# Auto-detects project from CWD git repo:
-! team-memory add "Always use connection pooling — default single connection causes timeouts under load" \
-    --project service-a \
-    --tags '["category:gotcha","database","pooling","connections"]'
-```
-
----
-
-## Verifying your setup
-
-```bash
-# 1. Which TEAM_MEMORY_DIR is active?
-echo ${TEAM_MEMORY_DIR:-~/.team-memory}
-
-# 2. Facts DB files exist?
-ls ${TEAM_MEMORY_DIR:-~/.team-memory}/facts/
-
-# 3. Opted-in projects?
-cat ${TEAM_MEMORY_DIR:-~/.team-memory}/opted-in-projects.json
-
-# 4. Hooks installed in Claude Code?
-grep -c "team-memory" ~/.claude/settings.json
-# should print 5
-
-# 5. Idle script executable?
-ls -la ${TEAM_MEMORY_DIR:-~/.team-memory}/hooks/idle.sh
-
-# 6. Test preprompt hook (from an opted-in project dir):
-cd ~/repos/my-service
-echo '{"prompt":"database connection pool"}' | team-memory preprompt-hook
-# returns {"continue":true} if no facts match, or {"hookSpecificOutput":...} if facts found
-
-# 7. Check hook errors:
-cat ${TEAM_MEMORY_DIR:-~/.team-memory}/hooks.log
+├── settings.json   5 team-memory hooks installed by join/update
+└── skills/extract-facts/SKILL.md   the /extract-facts skill
 ```
 
 ---
@@ -244,23 +176,44 @@ cat ${TEAM_MEMORY_DIR:-~/.team-memory}/hooks.log
 ## Troubleshooting
 
 **Facts not showing up in Claude**
-1. Is the project opted in? → `cat .claude/team-memory.md` (run from project dir)
-2. Is `TEAM_MEMORY_DIR` set correctly? → `echo $TEAM_MEMORY_DIR`
-3. Does the index exist? → `ls ${TEAM_MEMORY_DIR:-~/.team-memory}/merged_index.db`
-4. Test directly: `echo '{"prompt":"your search"}' | team-memory preprompt-hook`
-5. Any hook errors? → `cat ${TEAM_MEMORY_DIR:-~/.team-memory}/hooks.log`
-
-**`extract-bgc` processes nothing**
-1. Is the project opted in AND registered locally? → `cat ${TEAM_MEMORY_DIR:-~/.team-memory}/opted-in-projects.json`
-2. Re-register: `cd ~/repos/my-project && team-memory opt-in`
-
-**Wrong TEAM_MEMORY_DIR being used**
-- Claude Code inherits env vars from the shell that launched it
-- If you added it to `~/.zshrc` after launching Claude Code, restart Claude Code
-- Verify: `echo '{"prompt":"test"}' | team-memory preprompt-hook` — check which index it reads from
-
-**Hooks not firing after update**
 ```bash
-team-memory update --no-rebuild
-# Then restart Claude Code to pick up the new settings.json
+# 1. Is the project opted in?
+cat .claude/team-memory.md
+
+# 2. Is the dir pointer set?
+cat .claude/.team-memory-dir
+
+# 3. Test the hook directly:
+echo '{"prompt":"your search"}' | team-memory preprompt-hook
+
+# 4. Check hook errors:
+cat $(team-memory --help | grep -o '[^ ]*hooks.log' | head -1) 2>/dev/null \
+  || cat ~/.team-memory/hooks.log
+```
+
+**`extract-bgc` finds no sessions**
+```bash
+# Re-register the project:
+cd ~/repos/my-project
+team-memory opt-in
+
+# Check registry:
+cat ${TEAM_MEMORY_DIR:-~/.team-memory}/opted-in-projects.json
+```
+
+**Commands using wrong TEAM_MEMORY_DIR**
+```bash
+# Which repo is being used right now?
+cd ~/repos/my-service
+node -e "import('./node_modules/.bin/team-memory')" 2>/dev/null \
+  || echo '{"prompt":""}' | team-memory preprompt-hook | head -c 5
+
+# Simpler check:
+cat .claude/.team-memory-dir    # should show your expected path
+```
+
+**Hooks not firing**
+```bash
+team-memory update --no-rebuild   # wipe + reinstall all hooks
+# Then restart Claude Code
 ```
