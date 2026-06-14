@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, appendFileSync } from "fs";
 import { join, basename, dirname } from "path";
-import { homedir, tmpdir } from "os";
-import { execSync } from "child_process";
+import { homedir } from "os";
+import { invokeClaudeForFacts } from "./claude-exec.js";
 import { resolveRepoDir } from "./repo.js";
 import { getOptedInEncodedPaths, getOptedInProjects } from "./opt-in.js";
 import { isSessionSafe, cleanStaleSentinels } from "./active-sessions.js";
@@ -104,47 +104,8 @@ Return JSON only:
 
 // claude --print runs with Bash tool access. When processing code-heavy sessions
 // (e.g. about this codebase), Claude sometimes executes code fragments as shell
-// commands to "verify" things, producing /bin/sh: ... errors on stdout that
-// precede the actual JSON response. Extract the last valid top-level JSON object
-// from the output so tool-execution noise before the response is ignored.
-function extractLastJson(output: string): string | null {
-  let depth = 0;
-  let start = -1;
-  let last: string | null = null;
-  for (let i = 0; i < output.length; i++) {
-    if (output[i] === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (output[i] === "}") {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        last = output.slice(start, i + 1);
-      }
-    }
-  }
-  return last;
-}
-
 function extractFactsWithClaude(text: string): { content: string; tags: string[] }[] {
-  // Write prompt to temp file to avoid shell arg length limits
-  const tmpFile = join(tmpdir(), `tm-bgc-${Date.now()}.txt`);
-  try {
-    const prompt = `${SYSTEM_PROMPT}\n\n---\n${text}`;
-    writeFileSync(tmpFile, prompt, "utf-8");
-    const result = execSync(
-      `cat ${JSON.stringify(tmpFile)} | claude --print 2>/dev/null`,
-      { encoding: "utf-8", timeout: 120000 }
-    );
-    // Strip markdown fences, then find the last JSON object in the output
-    // (tool-execution noise from claude appears before the actual response)
-    const stripped = result.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    const raw = extractLastJson(stripped) ?? stripped;
-    const obj = JSON.parse(raw);
-    return Array.isArray(obj.facts) ? obj.facts : [];
-  } catch { return []; }
-  finally {
-    try { rmSync(tmpFile); } catch { /* ok */ }
-  }
+  return invokeClaudeForFacts(`${SYSTEM_PROMPT}\n\n---\n${text}`);
 }
 
 export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<void> {
@@ -221,6 +182,14 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
       addPendingFacts(repoDir, project, facts.map(f => ({ ...f, session: uuid })));
       totalFacts += facts.length;
       log(`queued ${facts.length} fact(s) for ${project} → run 'team-memory review-pending' to approve`);
+      // Log each fact individually so bgc.txt is a full audit trail
+      try {
+        const logPath = join(repoDir, 'bgc.txt');
+        const ts = new Date().toISOString();
+        for (const f of facts) {
+          appendFileSync(logPath, `[extract-bgc] ${ts} queued [${project}]: "${f.content.slice(0, 120)}"\n`);
+        }
+      } catch { /* best-effort */ }
     }
 
     if (!dryRun) {
@@ -233,12 +202,9 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
     process.stdout.write(`[dry-run] done. No changes written.\n`);
   } else {
     const logLine = `[extract-bgc] ${new Date().toISOString()} done — ${totalFacts} fact(s) queued from ${toProcess.length} session(s)`;
-    log(logLine.replace('[extract-bgc] ',''));
+    log(logLine.replace('[extract-bgc] ', ''));
     try {
-      const logPath = process.env.TEAM_MEMORY_DIR
-        ? join(process.env.TEAM_MEMORY_DIR, 'bgc.txt')
-        : join(homedir(), '.team-memory', 'bgc.txt');
-      appendFileSync(logPath, logLine + '\n');
-    } catch { /* log file write is best-effort */ }
+      appendFileSync(join(repoDir, 'bgc.txt'), logLine + '\n');
+    } catch { /* best-effort */ }
   }
 }

@@ -3,6 +3,7 @@ import { join } from "path";
 
 export interface QueuedPrompt {
   prompt: string;
+  project?: string;
   queued_at: string;
   processed: boolean;
 }
@@ -27,9 +28,9 @@ function saveQueue(repoDir: string, queue: SlackQueue): void {
   writeFileSync(join(repoDir, QUEUE_FILE), JSON.stringify(queue, null, 2));
 }
 
-export function enqueuePrompt(repoDir: string, prompt: string): void {
+export function enqueuePrompt(repoDir: string, prompt: string, project?: string): void {
   const queue = loadQueue(repoDir);
-  queue.prompts.push({ prompt, queued_at: new Date().toISOString(), processed: false });
+  queue.prompts.push({ prompt, project, queued_at: new Date().toISOString(), processed: false });
   saveQueue(repoDir, queue);
 }
 

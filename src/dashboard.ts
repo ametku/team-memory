@@ -22,6 +22,7 @@ export interface DashboardData {
   tagIndex: Array<{ tag: string; count: number }>;
   tagCooccurrence: Record<string, string[]>;
   generatedAt: string;
+  repoDir: string;
 }
 
 export interface DashboardInput {
@@ -38,7 +39,7 @@ export interface DashboardResult {
 }
 
 export function assembleDashboardData(repoDir: string, indexPath: string): DashboardData {
-  const empty: DashboardData = { facts: [], authors: [], tagIndex: [], tagCooccurrence: {}, generatedAt: new Date().toISOString() };
+  const empty: DashboardData = { facts: [], authors: [], tagIndex: [], tagCooccurrence: {}, generatedAt: new Date().toISOString(), repoDir };
 
   if (!existsSync(indexPath)) return empty;
 
@@ -134,7 +135,7 @@ export function assembleDashboardData(repoDir: string, indexPath: string): Dashb
 
   const authors = [...new Set(facts.map(f => f.author))].filter(a => a !== "unknown");
 
-  return { facts, authors, tagIndex, tagCooccurrence, generatedAt: new Date().toISOString() };
+  return { facts, authors, tagIndex, tagCooccurrence, generatedAt: new Date().toISOString(), repoDir };
 }
 
 function esc(s: string): string {
@@ -150,7 +151,11 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function cardHtml(f: DashboardFact): string {
+function rejectCmd(factId: string, repoDir: string): string {
+  return `TEAM_MEMORY_DIR=${repoDir} team-memory reject ${factId}`;
+}
+
+function cardHtml(f: DashboardFact, repoDir: string): string {
   const tagsHtml = f.tags.map(t =>
     `<span class="tag${t.startsWith("category:") ? " cat" : ""}" data-tag="${esc(t)}">${esc(t)}</span>`
   ).join("");
@@ -167,7 +172,7 @@ function cardHtml(f: DashboardFact): string {
   <div class="detail-row"><span class="dl">Added</span><span class="dv">${fmtDate(f.created_at)}</span></div>
   <div class="detail-row"><span class="dl">Last surfaced</span><span class="dv">${fmtDate(f.last_surfaced_at)}</span></div>
   <div class="detail-row"><span class="dl">Rejects</span><span class="dv">${f.reject_count}</span></div>
-  <div class="rcmd" data-rid="${esc(f.id)}">team-memory reject ${esc(f.id)}</div>
+  <div class="rcmd" data-rid="${esc(f.id)}" data-repodir="${esc(repoDir)}">${esc(rejectCmd(f.id, repoDir))}</div>
 </div>
 </div>`;
 }
@@ -175,6 +180,7 @@ function cardHtml(f: DashboardFact): string {
 function renderHtml(data: DashboardData): string {
   const json = JSON.stringify(data).replace(/<\/script>/gi, "<\\/script>");
   const generatedAt = new Date(data.generatedAt).toLocaleString();
+  const repoDir = data.repoDir;
   const sortedByTrust = [...data.facts].sort((a, b) => b.trust - a.trust);
 
   // New Relic design tokens
@@ -264,7 +270,7 @@ h2{font-size:18px;font-weight:600;margin-bottom:14px;color:#fff}
   <div class="tab active" data-mtab="authored" data-mauthor="${esc(a)}">Authored (${authored.length})</div>
   <div class="tab" data-mtab="activity" data-mauthor="${esc(a)}">Activity</div>
 </div>
-<div class="fact-list" id="mfl-${esc(a)}">${authored.map(cardHtml).join("") || '<div class="empty">No facts yet.</div>'}</div>
+<div class="fact-list" id="mfl-${esc(a)}">${authored.map(f => cardHtml(f, repoDir)).join("") || '<div class="empty">No facts yet.</div>'}</div>
 </div>`;
   }).join("");
 
@@ -276,7 +282,7 @@ h2{font-size:18px;font-weight:600;margin-bottom:14px;color:#fff}
     return `<div class="tag-detail" id="td-${esc(tag)}" style="display:none">
 <div class="tv-header"><span class="back" data-backtag>← All Tags</span>
 <h2>${esc(tag)} <span style="font-weight:400;color:#8FADC7;font-size:16px">${tf.length} facts</span></h2></div>
-<div class="fact-list">${tf.map(cardHtml).join("") || '<div class="empty">No facts with this tag.</div>'}</div>
+<div class="fact-list">${tf.map(f => cardHtml(f, repoDir)).join("") || '<div class="empty">No facts with this tag.</div>'}</div>
 ${rel ? `<div class="rel-tags"><div class="rel-lbl">Related tags</div><div class="tags">${rel}</div></div>` : ""}
 </div>`;
   }).join("");
@@ -284,10 +290,12 @@ ${rel ? `<div class="rel-tags"><div class="rel-lbl">Related tags</div><div class
   const js = `
 (function(){
 var d=JSON.parse(document.getElementById('__data__').textContent);
-var facts=d.facts,authors=d.authors,tagIndex=d.tagIndex,tagCooc=d.tagCooccurrence;
+var facts=d.facts,authors=d.authors,tagIndex=d.tagIndex,tagCooc=d.tagCooccurrence,repoDir=d.repoDir;
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmtDate(s){return s?new Date(s).toLocaleDateString():'—'}
+
+function rejectCmd(id){return'TEAM_MEMORY_DIR='+d.repoDir+' team-memory reject '+id}
 
 function cardHtml(f){
   var tagsH=f.tags.map(function(t){return'<span class="tag'+(t.startsWith('category:')?'  cat':'')+'" data-tag="'+esc(t)+'">'+esc(t)+'</span>'}).join('');
@@ -304,7 +312,7 @@ function cardHtml(f){
       '<div class="detail-row"><span class="dl">Added</span><span class="dv">'+fmtDate(f.created_at)+'</span></div>'+
       '<div class="detail-row"><span class="dl">Last surfaced</span><span class="dv">'+fmtDate(f.last_surfaced_at)+'</span></div>'+
       '<div class="detail-row"><span class="dl">Rejects</span><span class="dv">'+f.reject_count+'</span></div>'+
-      '<div class="rcmd" data-rid="'+esc(f.id)+'">team-memory reject '+esc(f.id)+'</div>'+
+      '<div class="rcmd" data-rid="'+esc(f.id)+'">'+esc(rejectCmd(f.id))+'</div>'+
     '</div>'+
   '</div>';
 }
@@ -428,7 +436,7 @@ document.addEventListener('click',function(e){
   if(mt){switchTab(mt.dataset.mtab,mt.dataset.mauthor);return;}
   var rc=e.target.closest('.rcmd');
   if(rc){e.stopPropagation();
-    var cmd='team-memory reject '+rc.dataset.rid;
+    var cmd=rejectCmd(rc.dataset.rid);
     navigator.clipboard&&navigator.clipboard.writeText(cmd).then(function(){
       rc.classList.add('ok');rc.textContent='✓ Copied!';
       setTimeout(function(){rc.classList.remove('ok');rc.textContent=cmd},1500);
@@ -465,7 +473,7 @@ if(h==='members'||h==='tags')showView(h);
   <a class="nav-link active" data-view="team" href="#team">Team View</a>
   <a class="nav-link" data-view="members" href="#members">Members</a>
   <a class="nav-link" data-view="tags" href="#tags">Tags</a>
-  <span class="nav-meta">Generated ${esc(generatedAt)}</span>
+  <span class="nav-meta">${esc(data.repoDir)} · Generated ${esc(generatedAt)}</span>
 </nav>
 <div id="app">
   <div class="view active" id="view-team">
@@ -479,7 +487,7 @@ if(h==='members'||h==='tags')showView(h);
       <select class="ctl-select" id="tproj"><option value="">All projects</option>${projOpts}</select>
       <select class="ctl-select" id="tsort"><option value="trust">Sort: Trust</option><option value="date">Sort: Date</option><option value="surfaces">Sort: Surfaces</option></select>
     </div>
-    <div class="fact-list" id="tlist">${sortedByTrust.map(cardHtml).join("")}</div>
+    <div class="fact-list" id="tlist">${sortedByTrust.map(f => cardHtml(f, repoDir)).join("")}</div>
   </div>
   <div class="view" id="view-members">
     <div class="members-layout">

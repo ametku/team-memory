@@ -47,7 +47,7 @@ function _runPrepromptHook(input: PrepromptInput): PrepromptOutput {
 
   // Silently queue qualifying prompts for extract-slack to process on its next run
   if (isQualifyingPrompt(prompt)) {
-    try { enqueuePrompt(repoDir, prompt); } catch { /* never block the prompt */ }
+    try { enqueuePrompt(repoDir, prompt, project); } catch { /* never block the prompt */ }
   }
 
   const results = queryFacts({ indexPath, query: prompt, limit: 5, project });

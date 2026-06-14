@@ -417,6 +417,10 @@ function main(): void {
       }
       removePendingFacts(repoDir, project, [...approved, ...rejected]);
       process.stdout.write(`\nDone. ${approved.length} saved, ${rejected.length} rejected.\n`);
+      if (approved.length > 0) {
+        process.stdout.write(`Pushing to team...\n`);
+        execFileSync("team-memory", ["sync", "--push"], { stdio: "inherit" });
+      }
     })().catch(e => { process.stderr.write(`Error: ${e.message}\n`); process.exit(1); });
     return;
   }
