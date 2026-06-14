@@ -15,7 +15,7 @@ describe("team-memory CLI", () => {
       encoding: "utf-8",
     });
     expect(output).toContain("team-memory");
-    expect(output).toContain("Commands:");
+    expect(output).toContain("Setup");
   });
 
   it("prints version on --version", () => {

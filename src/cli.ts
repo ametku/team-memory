@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { basename, dirname, join } from "path";
-import { mkdirSync, readFileSync } from "fs";
+import { mkdirSync, readFileSync, appendFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { addFact } from "./add.js";
@@ -32,32 +32,50 @@ const USAGE = `team-memory — shared long-term memory for coding agents
 Usage:
   team-memory <command> [options]
 
-Commands:
-  add <content>        Add a new fact
-  query <text>         Search facts by relevance (use --project <name> to scope)
-  reject <fact_id>     Mark a fact as incorrect
-  rebuild-index        Rebuild the local merged index
-  prune                Remove stale or rejected facts
-  sync                 Pull from remote and rebuild index
-  install-hook         Install post-merge git hook for auto-rebuild
-  preprompt-hook       Claude Code UserPromptSubmit hook (reads stdin JSON, writes stdout JSON)
-  session-end          Commit accumulated surface interactions to git
-  extract-bg           Extract facts from past sessions using NerdCompletion API
-  extract-bgc          Extract facts from past sessions using Claude (no API key needed)
-  review-pending       Review facts queued by extract-bgc in current project
-  dashboard            Generate and open a static HTML fact browser
-  opt-in               Opt the current project into team-memory fact extraction
-  update               Pull + rebuild CLI, refresh hooks/skill, sync facts
-                       Use --no-rebuild to skip git pull + build step
-  extract-slack        Extract facts from Slack threads matching queued prompts
-  join <repo-url>      Clone an existing team-memory repo, onboard this dev,
-                       and install the Claude pre-prompt hook in ~/.claude/settings.json
-  init                 Create a new team-memory repo on GitHub, bootstrap it,
-                       and install the Claude pre-prompt hook in ~/.claude/settings.json
+── Setup (run once from terminal) ───────────────────────────────────────────
+  init --org X --repo Y  Create a new team-memory repo on GitHub + onboard
+  join <repo-url>        Join an existing team-memory repo + onboard
+  update                 Upgrade CLI binary, reinstall hooks/skill, sync facts
+                         Use --no-rebuild to skip git pull + build step
+  opt-in                 Opt the current project into team-memory extraction
+                         Run from your project directory; commit the marker file
+
+── Claude Code hooks (auto-installed — never call these manually) ────────────
+  preprompt-hook         UserPromptSubmit: injects matching facts into every prompt
+  session-start          SessionStart: marks session live, notifies pending facts
+  session-deactivate     SessionEnd: marks session complete, prevents bgc re-processing
+  session-end            SessionEnd: commits surface interactions to git
+  install-hook           Install post-merge git hook for auto index rebuild
+
+── Inside your Claude session (use the ! prefix to run in terminal) ──────────
+  ! team-memory review-pending   Review + approve facts queued by extract-bgc/slack
+  ! team-memory query <text>     Search facts (--project <name> to scope, --limit N)
+  ! team-memory add <content>    Add a fact manually (--project <p> --tags '[...]')
+  ! team-memory reject <id>      Mark a fact as incorrect
+  ! team-memory dashboard        Generate + open the HTML fact browser
+  ! team-memory opt-in           Opt current project in
+
+── From terminal (or /loop <interval> inside Claude) ────────────────────────
+  extract-bgc            Mine past sessions via Claude — no API key needed
+                         Run periodically: team-memory extract-bgc
+                         Or inside Claude: /loop 30m team-memory extract-bgc
+  extract-slack          Mine Slack threads via Slack MCP — no token needed
+                         Requires Slack MCP server in ~/.claude/settings.json
+  sync [--push]          Pull teammates' facts, rebuild index, optionally push yours
+  rebuild-index          Rebuild local FTS index from all fact DBs
+  prune [--dry-run]      Remove stale or rejected facts (your authored facts only)
+  extract-bg             Mine past sessions via NerdCompletion API
+                         Requires: NERD_COMPLETION_API_KEY env var
 
 Options:
-  --help               Show this help message
-  --version            Show version
+  --help                 Show this help message
+  --version              Show version
+
+Logs (all in TEAM_MEMORY_DIR):
+  idle.txt               Idle hook fires and skips (one entry per Claude response)
+  bgc.txt                Facts queued by extract-bgc (one line per fact)
+  slack.txt              Facts queued by extract-slack (one line per fact)
+  hooks.log              Warnings/errors from Claude Code hooks (never shown in session)
 `;
 
 function detectProject(): string | undefined {
@@ -322,27 +340,38 @@ function main(): void {
   }
 
   if (command === "preprompt-hook") {
+    // Hook commands must NEVER write to stderr — Claude Code would surface it as
+    // an error in the user's session. Redirect stderr to hooks.log instead.
+    const hooksLogPath = join(resolveRepoDir(), "hooks.log");
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as any).write = (msg: string | Uint8Array, ...args: any[]): boolean => {
+      try { appendFileSync(hooksLogPath, `${new Date().toISOString()} [preprompt] ${msg}`); } catch { /* best-effort */ }
+      return true;
+    };
+
     let raw = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk: string) => { raw += chunk; });
     process.stdin.on("end", () => {
-      let prompt = "";
       try {
-        const payload = JSON.parse(raw);
-        prompt = payload.prompt ?? "";
-      } catch {
+        let prompt = "";
+        try {
+          const payload = JSON.parse(raw);
+          prompt = payload.prompt ?? "";
+        } catch { /* malformed input — continue with empty prompt */ }
+        const indexPath = resolveIndexPath();
+        const repoDir = resolveRepoDir();
+        const developer = (() => { try { return getDeveloperName(); } catch { return "unknown"; } })();
+        const project = detectProject();
+        const projectRoot = detectProjectRoot();
+        const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project, projectRoot });
+        process.stdout.write(JSON.stringify(result));
+      } catch (e: any) {
+        try { appendFileSync(hooksLogPath, `${new Date().toISOString()} [preprompt] ERROR: ${e?.message}\n`); } catch { /* best-effort */ }
         process.stdout.write(JSON.stringify({ continue: true }));
-        return;
       }
-      const indexPath = resolveIndexPath();
-      const repoDir = resolveRepoDir();
-      const developer = (() => {
-        try { return getDeveloperName(); } catch { return "unknown"; }
-      })();
-      const project = detectProject();
-      const projectRoot = detectProjectRoot();
-      const result = runPrepromptHook({ prompt, indexPath, repoDir, developer, project, projectRoot });
-      process.stdout.write(JSON.stringify(result));
+      // Restore stderr
+      (process.stderr as any).write = origStderrWrite;
     });
     return;
   }
@@ -445,7 +474,13 @@ function main(): void {
   }
 
   if (command === "session-start") {
-    // Claude Code SessionStart hook — mark session active + notify pending facts
+    const hooksLogPath = join(resolveRepoDir(), "hooks.log");
+    const origWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as any).write = (msg: string | Uint8Array, ...args: any[]): boolean => {
+      try { appendFileSync(hooksLogPath, `${new Date().toISOString()} [session-start] ${msg}`); } catch { /* best-effort */ }
+      return true;
+    };
+
     let raw = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (c: string) => { raw += c; });
@@ -460,18 +495,27 @@ function main(): void {
           const count = getPendingFacts(repoDir, project).length;
           if (count > 0) {
             process.stdout.write(JSON.stringify({ systemMessage: `team-memory: ${count} fact(s) pending review from past sessions — run \`! team-memory review-pending\` when ready.` }));
+            (process.stderr as any).write = origWrite;
             return;
           }
         }
-      } catch { /* ignore */ }
+      } catch (e: any) {
+        try { appendFileSync(hooksLogPath, `${new Date().toISOString()} [session-start] ERROR: ${e?.message}\n`); } catch { /* best-effort */ }
+      }
       process.stdout.write(JSON.stringify({ continue: true }));
+      (process.stderr as any).write = origWrite;
     });
     return;
   }
 
   if (command === "session-deactivate") {
-    // Called from SessionEnd hook: remove sentinel + mark session handled for bgc
-    // so extract-bgc never re-processes a session that /extract-facts already handled
+    // Silent — no stdout output needed, no stderr allowed in Claude session
+    const hooksLogPath = join(resolveRepoDir(), "hooks.log");
+    (process.stderr as any).write = (msg: string | Uint8Array, ...args: any[]): boolean => {
+      try { appendFileSync(hooksLogPath, `${new Date().toISOString()} [session-deactivate] ${msg}`); } catch { /* best-effort */ }
+      return true;
+    };
+
     let raw = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (c: string) => { raw += c; });
@@ -484,7 +528,9 @@ function main(): void {
           const repoDir = resolveRepoDir();
           markSessionHandledByExtractFacts(repoDir, sessionId);
         }
-      } catch { /* ignore */ }
+      } catch (e: any) {
+        try { appendFileSync(hooksLogPath, `${new Date().toISOString()} [session-deactivate] ERROR: ${e?.message}\n`); } catch { /* best-effort */ }
+      }
     });
     return;
   }
