@@ -4,7 +4,10 @@ const ARCH_SIGNALS = ["should we", "approach", "pattern", "design", "architectur
 const ALL_SIGNALS = [...QUESTION_MARKERS, ...DEBUG_SIGNALS, ...ARCH_SIGNALS];
 
 export function isQualifyingPrompt(prompt: string): boolean {
-  if (prompt.trim().length < 20) return false;
-  const lower = prompt.toLowerCase();
+  const trimmed = prompt.trim();
+  if (trimmed.length < 20) return false;
+  // Ignore system/hook messages (XML tags, JSON payloads, task notifications)
+  if (trimmed.startsWith("<") || trimmed.startsWith("{")) return false;
+  const lower = trimmed.toLowerCase();
   return ALL_SIGNALS.some(kw => lower.includes(kw));
 }
