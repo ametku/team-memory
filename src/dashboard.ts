@@ -21,6 +21,8 @@ export interface DashboardData {
   authors: string[];
   tagIndex: Array<{ tag: string; count: number }>;
   tagCooccurrence: Record<string, string[]>;
+  // authorSurfaces[author][factId] = surface count by that author
+  authorSurfaces: Record<string, Record<string, number>>;
   generatedAt: string;
   repoDir: string;
 }
@@ -39,7 +41,7 @@ export interface DashboardResult {
 }
 
 export function assembleDashboardData(repoDir: string, indexPath: string): DashboardData {
-  const empty: DashboardData = { facts: [], authors: [], tagIndex: [], tagCooccurrence: {}, generatedAt: new Date().toISOString(), repoDir };
+  const empty: DashboardData = { facts: [], authors: [], tagIndex: [], tagCooccurrence: {}, authorSurfaces: {}, generatedAt: new Date().toISOString(), repoDir };
 
   if (!existsSync(indexPath)) return empty;
 
@@ -65,14 +67,17 @@ export function assembleDashboardData(repoDir: string, indexPath: string): Dashb
   // Aggregate interactions from interactions-*.db files
   const intDir = join(repoDir, "interactions");
   const intMap = new Map<string, { surface_count: number; last_surfaced_at: string | null; reject_count: number }>();
+  const authorSurfaces: Record<string, Record<string, number>> = {};
   if (existsSync(intDir)) {
     for (const file of readdirSync(intDir).filter(f => f.startsWith("interactions-") && f.endsWith(".db"))) {
+      const fileAuthor = file.slice("interactions-".length, -".db".length);
       const db = new Database(join(intDir, file), { readonly: true });
       const rows = db.prepare(
         "SELECT fact_id, surface_count, last_surfaced_at, explicit_score FROM interactions"
       ).all() as { fact_id: string; surface_count: number; last_surfaced_at: string; explicit_score: number }[];
       db.close();
       for (const row of rows) {
+        // Aggregate totals
         const existing = intMap.get(row.fact_id);
         if (existing) {
           existing.surface_count += row.surface_count;
@@ -84,6 +89,11 @@ export function assembleDashboardData(repoDir: string, indexPath: string): Dashb
             last_surfaced_at: row.last_surfaced_at,
             reject_count: row.explicit_score < 0 ? 1 : 0,
           });
+        }
+        // Per-author surfaces (for Activity tab)
+        if (row.surface_count > 0) {
+          authorSurfaces[fileAuthor] ??= {};
+          authorSurfaces[fileAuthor][row.fact_id] = (authorSurfaces[fileAuthor][row.fact_id] ?? 0) + row.surface_count;
         }
       }
     }
@@ -135,7 +145,7 @@ export function assembleDashboardData(repoDir: string, indexPath: string): Dashb
 
   const authors = [...new Set(facts.map(f => f.author))].filter(a => a !== "unknown");
 
-  return { facts, authors, tagIndex, tagCooccurrence, generatedAt: new Date().toISOString(), repoDir };
+  return { facts, authors, tagIndex, tagCooccurrence, authorSurfaces, generatedAt: new Date().toISOString(), repoDir };
 }
 
 function esc(s: string): string {
@@ -310,6 +320,17 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .rel-lbl{font-size:11px;color:#334155;margin-bottom:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:600}
 .empty{color:#334155;font-size:14px;padding:48px;text-align:center}
 h2{font-size:18px;font-weight:700;margin-bottom:16px;color:#f1f5f9;letter-spacing:-.02em}
+@keyframes fadeSlideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.card{animation:fadeSlideIn .18s ease both}
+.view{transition:opacity .15s ease}
+.view:not(.active){opacity:0;pointer-events:none}
+.view.active{opacity:1}
+.trust-bar{transition:width .4s cubic-bezier(.4,0,.2,1)}
+.filter-count{font-size:13px;color:#475569;margin-left:4px}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:#14b8a6;display:inline-block;margin-right:6px;animation:pulse 2s ease-in-out infinite}
+.sync-stale .sync-dot{background:#f59e0b}
+.nav-sync{display:flex;align-items:center;font-size:12px;color:#334155;margin-left:auto}
 `;
 
   const catCounts: Record<string, number> = {};
@@ -352,10 +373,38 @@ ${rel ? `<div class="rel-tags"><div class="rel-lbl">Related tags</div><div class
   const js = `
 (function(){
 var d=JSON.parse(document.getElementById('__data__').textContent);
-var facts=d.facts,authors=d.authors,tagIndex=d.tagIndex,tagCooc=d.tagCooccurrence,repoDir=d.repoDir;
+var facts=d.facts,authors=d.authors,tagIndex=d.tagIndex,tagCooc=d.tagCooccurrence,repoDir=d.repoDir,authorSurfaces=d.authorSurfaces||{};
+var generatedAt=new Date(d.generatedAt);
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmtDate(s){return s?new Date(s).toLocaleDateString():'—'}
+
+function relTime(iso){
+  if(!iso)return'—';
+  var diff=Date.now()-new Date(iso).getTime();
+  var m=Math.floor(diff/60000);
+  if(m<1)return'just now';
+  if(m<60)return m+'m ago';
+  var h=Math.floor(m/60);
+  if(h<24)return h+'h ago';
+  var day=Math.floor(h/24);
+  if(day<7)return day+'d ago';
+  if(day<30)return Math.floor(day/7)+'w ago';
+  return Math.floor(day/30)+'mo ago';
+}
+
+// Live "synced X ago" nav indicator
+function updateSyncLabel(){
+  var el=document.getElementById('sync-label');
+  var nav=document.getElementById('nav-sync');
+  if(!el)return;
+  var diff=Date.now()-generatedAt.getTime();
+  var mins=Math.floor(diff/60000);
+  el.textContent=mins<1?'synced just now':'synced '+relTime(d.generatedAt);
+  if(nav)nav.className='nav-sync'+(mins>30?' sync-stale':'');
+}
+updateSyncLabel();
+setInterval(updateSyncLabel,30000);
 
 function rejectCmd(id){return'team-memory reject '+id}
 
@@ -387,8 +436,8 @@ function cardHtml(f){
     '<div class="card-detail">'+
       (kwH?'<div class="kw-tags">'+kwH+'</div>':'')+
       '<div class="meta-grid">'+
-        '<div class="mg"><span class="ml">Added</span><span class="mv">'+fmtDate(f.created_at)+'</span></div>'+
-        '<div class="mg"><span class="ml">Last surfaced</span><span class="mv">'+fmtDate(f.last_surfaced_at)+'</span></div>'+
+        '<div class="mg"><span class="ml">Added</span><span class="mv" title="'+fmtDate(f.created_at)+'">'+relTime(f.created_at)+'</span></div>'+
+        '<div class="mg"><span class="ml">Last surfaced</span><span class="mv" title="'+fmtDate(f.last_surfaced_at)+'">'+relTime(f.last_surfaced_at)+'</span></div>'+
         '<div class="mg"><span class="ml">Rejects</span><span class="mv">'+f.reject_count+'</span></div>'+
         '<div class="mg"><span class="ml">ID</span><span class="mv">'+esc(f.id)+'</span></div>'+
       '</div>'+
@@ -430,6 +479,11 @@ function updateTeamList(){
   var s=document.getElementById('tsort').value;
   var res=sorted(filtered(facts,q,p),s);
   document.getElementById('tlist').innerHTML=res.map(cardHtml).join('')||'<div class="empty">No facts match.</div>';
+  var fc=document.getElementById('filter-count');
+  if(fc){
+    var total=facts.length;
+    fc.textContent=(res.length<total)?('Showing '+res.length+' of '+total):'';
+  }
 }
 
 function updateTagGrid(){
@@ -449,9 +503,10 @@ function updateMemberList(){
   var tab=activeTab?activeTab.dataset.mtab:'authored';
   var fl=document.getElementById('mfl-'+author);
   if(!fl)return;
+  var mySurfaces=authorSurfaces[author]||{};
   var pool=tab==='authored'
     ?facts.filter(function(f){return f.author===author})
-    :sorted(facts,'surfaces').slice(0,20);
+    :facts.filter(function(f){return(mySurfaces[f.id]||0)>0}).sort(function(a,b){return(mySurfaces[b.id]||0)-(mySurfaces[a.id]||0)});
   var res=q?pool.filter(function(f){
     return f.content.toLowerCase().indexOf(q.toLowerCase())>-1||
            f.tags.some(function(t){return t.toLowerCase().indexOf(q.toLowerCase())>-1});
@@ -487,10 +542,14 @@ function switchTab(tab,author){
   if(!fl)return;
   if(tab==='authored'){
     var authored=facts.filter(function(f){return f.author===author});
-    fl.innerHTML=sorted(authored,'trust').map(cardHtml).join('')||'<div class="empty">No facts yet.</div>';
+    fl.innerHTML=sorted(authored,'trust').map(cardHtml).join('')||'<div class="empty">No facts authored yet.</div>';
   } else {
-    var top=sorted(facts,'surfaces').slice(0,20);
-    fl.innerHTML=top.map(cardHtml).join('')||'<div class="empty">No activity yet.</div>';
+    // Activity = facts this author personally surfaced, sorted by their own surface count
+    var mySurfaces=authorSurfaces[author]||{};
+    var surfaced=facts.filter(function(f){return(mySurfaces[f.id]||0)>0});
+    surfaced.sort(function(a,b){return(mySurfaces[b.id]||0)-(mySurfaces[a.id]||0)});
+    fl.innerHTML=surfaced.slice(0,30).map(cardHtml).join('')||
+      '<div class="empty">No surfaced facts yet — facts appear here as Claude injects them into your sessions.</div>';
   }
 }
 
@@ -568,7 +627,7 @@ if(h==='members'||h==='tags')showView(h);
   <a class="nav-link active" data-view="team" href="#team">Team View</a>
   <a class="nav-link" data-view="members" href="#members">Members</a>
   <a class="nav-link" data-view="tags" href="#tags">Tags</a>
-  <span class="nav-meta">${esc(data.repoDir)}</span>
+  <span class="nav-sync" id="nav-sync"><span class="sync-dot"></span><span id="sync-label">synced just now</span></span>
 </nav>
 <div id="app">
   <div class="view active" id="view-team">
@@ -586,6 +645,7 @@ if(h==='members'||h==='tags')showView(h);
     <div class="cat-filters">
       <button class="cf active" data-cat="">All <span style="opacity:.6">${data.facts.length}</span></button>
       ${catPills}
+      <span class="filter-count" id="filter-count"></span>
     </div>
     <div class="fact-list" id="tlist">${sortedByTrust.map(f => cardHtml(f, repoDir)).join("")}</div>
   </div>
