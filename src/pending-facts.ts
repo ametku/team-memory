@@ -8,7 +8,10 @@ export interface PendingFact {
   id: string;
   content: string;
   tags: string[];
-  session: string;
+  session: string;         // session UUID (bgc) or queued prompt (slack)
+  source: "bgc" | "slack" | "manual";
+  author?: string;         // developer who ran the extraction
+  slack_url?: string;      // Slack thread URL (slack source only)
   extracted_at: string;
 }
 
@@ -39,6 +42,14 @@ export function addPendingFacts(repoDir: string, project: string, facts: Omit<Pe
 
 export function getPendingFacts(repoDir: string, project: string): PendingFact[] {
   return load(repoDir)[project] ?? [];
+}
+
+// Returns all pending facts across every bucket with the bucket name attached.
+export function getAllPendingFacts(repoDir: string): Array<PendingFact & { bucket: string }> {
+  const store = load(repoDir);
+  return Object.entries(store).flatMap(([bucket, facts]) =>
+    facts.map(f => ({ ...f, bucket }))
+  );
 }
 
 export function hasPendingFacts(repoDir: string, project: string): boolean {

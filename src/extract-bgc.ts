@@ -3,6 +3,7 @@ import { join, basename, dirname } from "path";
 import { homedir } from "os";
 import { invokeClaudeForFacts } from "./claude-exec.js";
 import { resolveRepoDir } from "./repo.js";
+import { getDeveloperName } from "./developer.js";
 import { getOptedInEncodedPaths, getOptedInProjects } from "./opt-in.js";
 import { isSessionSafe, cleanStaleSentinels } from "./active-sessions.js";
 import { addPendingFacts } from "./pending-facts.js";
@@ -117,6 +118,7 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
     return;
   }
 
+  const author = (() => { try { return getDeveloperName(); } catch { return undefined; } })();
   const projectPaths = getOptedInProjects(repoDir);
   const state = dryRun ? { processed: [], failed: {} } : loadProcessed(repoDir);
   const allFiles = findJsonlFilesForEncodedPaths(encodedPaths);
@@ -178,7 +180,7 @@ export async function runExtractBgc({ dryRun }: { dryRun: boolean }): Promise<vo
         process.stdout.write(`         Project: ${project}\n`);
       }
     } else if (facts.length > 0) {
-      addPendingFacts(repoDir, project, facts.map(f => ({ ...f, session: uuid })));
+      addPendingFacts(repoDir, project, facts.map(f => ({ ...f, session: uuid, source: "bgc" as const, author })));
       totalFacts += facts.length;
       log(`queued ${facts.length} fact(s) for ${project} → run 'team-memory review-pending' to approve`);
       // Log each fact individually so bgc.txt is a full audit trail

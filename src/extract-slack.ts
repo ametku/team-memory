@@ -2,6 +2,7 @@ import { appendFileSync } from "fs";
 import { join } from "path";
 import { invokeClaudeForFacts } from "./claude-exec.js";
 import { resolveRepoDir } from "./repo.js";
+import { getDeveloperName } from "./developer.js";
 import { pendingPrompts, markProcessed } from "./slack-queue.js";
 import { addPendingFacts } from "./pending-facts.js";
 
@@ -32,16 +33,19 @@ Return JSON only:
   "facts": [
     {
       "content": "one declarative sentence, concrete and future-searchable",
-      "tags": ["category:<gotcha|convention|tool|workaround|decision>", "kw1", "kw2"]
+      "tags": ["category:<gotcha|convention|tool|workaround|decision>", "kw1", "kw2"],
+      "slack_url": "https://..."
     }
   ]
 }
 
+Include the full Slack permalink URL for the thread where the fact came from.
 If no relevant discussion found, return { "facts": [] }.`;
 
 export async function runExtractSlack({ dryRun }: { dryRun: boolean }): Promise<void> {
   const repoDir = resolveRepoDir();
   const logPath = join(repoDir, "slack.txt");
+  const author = (() => { try { return getDeveloperName(); } catch { return undefined; } })();
 
   const pending = pendingPrompts(repoDir);
   if (pending.length === 0) {
@@ -56,7 +60,7 @@ export async function runExtractSlack({ dryRun }: { dryRun: boolean }): Promise<
     log(`searching Slack for: "${item.prompt.slice(0, 80)}"`);
 
     const prompt = `${SYSTEM_PROMPT}\n\nDeveloper query: ${JSON.stringify(item.prompt)}`;
-    const facts = invokeClaudeForFacts(prompt);
+    const facts = invokeClaudeForFacts(prompt) as Array<{ content: string; tags: string[]; slack_url?: string }>;
 
     log(`extracted ${facts.length} fact(s)`);
 
@@ -66,16 +70,24 @@ export async function runExtractSlack({ dryRun }: { dryRun: boolean }): Promise<
           process.stdout.write(`[dry-run] Fact: ${JSON.stringify(f.content)}\n`);
           process.stdout.write(`         Tags: ${JSON.stringify(f.tags)}\n`);
           process.stdout.write(`         Project: ${item.project ?? "global"}\n`);
+          if (f.slack_url) process.stdout.write(`         Source: ${f.slack_url}\n`);
         }
       } else {
         const project = item.project ?? "_slack";
-        addPendingFacts(repoDir, project, facts.map(f => ({ ...f, session: item.prompt })));
+        addPendingFacts(repoDir, project, facts.map(f => ({
+          content: f.content,
+          tags: f.tags,
+          session: item.prompt,
+          source: "slack" as const,
+          author,
+          slack_url: f.slack_url,
+        })));
         totalFacts += facts.length;
-        // Log each fact to slack.txt in TEAM_MEMORY_DIR
         try {
           const ts = new Date().toISOString();
           for (const f of facts) {
-            appendFileSync(logPath, `[extract-slack] ${ts} queued [${project}]: "${f.content.slice(0, 120)}"\n`);
+            const url = f.slack_url ? ` → ${f.slack_url}` : "";
+            appendFileSync(logPath, `[extract-slack] ${ts} queued [${project}]: "${f.content.slice(0, 120)}"${url}\n`);
           }
         } catch { /* best-effort */ }
         log(`queued ${facts.length} fact(s) for ${item.project ?? "global"} → run 'team-memory review-pending'`);

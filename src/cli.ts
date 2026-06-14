@@ -20,7 +20,7 @@ import { runPrepromptHook } from "./preprompt.js";
 import { commitInteractions } from "./surface-logging.js";
 import { runExtractBg } from "./extract-bg.js";
 import { runExtractBgc } from "./extract-bgc.js";
-import { getPendingFacts, removePendingFacts, markSessionHandledByExtractFacts } from "./pending-facts.js";
+import { getPendingFacts, getAllPendingFacts, removePendingFacts, markSessionHandledByExtractFacts } from "./pending-facts.js";
 import { markSessionActive, markSessionCleanEnd } from "./active-sessions.js";
 import { generateDashboard } from "./dashboard.js";
 import { createOptInMarker, registerProject, isOptedIn, writeLocalDirPointer } from "./opt-in.js";
@@ -421,15 +421,11 @@ function main(): void {
 
   if (command === "review-pending") {
     const repoDir = resolveRepoDir();
-    const project = detectProject();
-    // Collect pending facts: current project + cross-project keys (_slack, _global)
-    // so Slack-extracted facts are visible regardless of which project dir you're in.
-    const projectFacts = project ? getPendingFacts(repoDir, project) : [];
-    const slackFacts   = getPendingFacts(repoDir, "_slack");
-    const globalFacts  = getPendingFacts(repoDir, "_global");
-    const pending = [...projectFacts, ...slackFacts, ...globalFacts];
+    // Works from any directory — no git repo required.
+    // getAllPendingFacts returns every queued fact across all buckets (projects, _slack, _global).
+    const pending = getAllPendingFacts(repoDir);
     if (pending.length === 0) {
-      process.stdout.write(`No pending facts${project ? ` for ${project}` : ""}.\n`);
+      process.stdout.write(`No pending facts.\n`);
       return;
     }
     (async () => {
@@ -439,31 +435,35 @@ function main(): void {
       const rejectedByBucket = new Map<string, string[]>();
       for (let i = 0; i < pending.length; i++) {
         const f = pending[i];
-        // Determine which bucket this fact came from
-        const bucket = projectFacts.includes(f) ? (project ?? "_global")
-                     : slackFacts.includes(f)   ? "_slack"
-                     : "_global";
-        const factProject = bucket === "_slack" || bucket === "_global" ? (project ?? bucket) : bucket;
-        process.stdout.write(`Fact ${i + 1}/${pending.length} [${bucket}]:\n  ${f.content}\n  tags: ${JSON.stringify(f.tags)}\n  from: ${f.session}\n`);
+        const { bucket, ...fact } = f;
+        const factProject = bucket.startsWith("_") ? (detectProject() ?? bucket) : bucket;
+
+        // Rich metadata display
+        process.stdout.write(`Fact ${i + 1}/${pending.length}:\n`);
+        process.stdout.write(`  ${fact.content}\n`);
+        process.stdout.write(`  project : ${bucket}\n`);
+        process.stdout.write(`  tags    : ${JSON.stringify(fact.tags)}\n`);
+        const sourceLabel = fact.source === "slack" ? "Slack thread" : fact.source === "bgc" ? "Claude session" : "manual";
+        process.stdout.write(`  source  : ${sourceLabel}${fact.author ? ` (by ${fact.author})` : ""}\n`);
+        if (fact.slack_url) process.stdout.write(`  url     : ${fact.slack_url}\n`);
+        else process.stdout.write(`  session : ${fact.session?.slice(0, 50) ?? "unknown"}\n`);
+
         const answer = await new Promise<string>(res => {
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           rl.question("Save? (y/n): ", a => { rl.close(); res(a.trim().toLowerCase()); });
         });
         if (answer === "y") {
           if (!approvedByBucket.has(bucket)) approvedByBucket.set(bucket, []);
-          approvedByBucket.get(bucket)!.push(f.id);
-          execFileSync("team-memory", ["add", f.content, "--project", factProject, "--tags", JSON.stringify(f.tags)], { stdio: "inherit" });
+          approvedByBucket.get(bucket)!.push(fact.id);
+          execFileSync("team-memory", ["add", fact.content, "--project", factProject, "--tags", JSON.stringify(fact.tags)], { stdio: "inherit" });
         } else {
           if (!rejectedByBucket.has(bucket)) rejectedByBucket.set(bucket, []);
-          rejectedByBucket.get(bucket)!.push(f.id);
+          rejectedByBucket.get(bucket)!.push(fact.id);
         }
       }
       // Remove reviewed facts from each bucket
-      for (const [bucket, ids] of [...approvedByBucket, ...rejectedByBucket]) {
-        const allIds = [
-          ...(approvedByBucket.get(bucket) ?? []),
-          ...(rejectedByBucket.get(bucket) ?? []),
-        ];
+      for (const bucket of new Set([...approvedByBucket.keys(), ...rejectedByBucket.keys()])) {
+        const allIds = [...(approvedByBucket.get(bucket) ?? []), ...(rejectedByBucket.get(bucket) ?? [])];
         removePendingFacts(repoDir, bucket, allIds);
       }
       const totalApproved = [...approvedByBucket.values()].flat().length;
