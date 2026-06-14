@@ -109,7 +109,7 @@ describe("team-memory update CLI", () => {
     const joined = join(tmp, "joined");
     const settingsPath = join(tmp, "settings.json");
 
-    const output = execFileSync("node", [CLI_PATH, "update"], {
+    const output = execFileSync("node", [CLI_PATH, "update", "--no-rebuild"], {
       encoding: "utf-8",
       env: {
         ...process.env,
